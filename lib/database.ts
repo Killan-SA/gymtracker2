@@ -56,6 +56,10 @@ function _initDatabase(db: SQLite.SQLiteDatabase): void {
     );
   `);
 
+  // Migration : ajoute la colonne RPE (Rate of Perceived Exertion, 1-10)
+  // si elle n'existe pas déjà sur une base créée avant son introduction.
+  _addColumnIfMissing(db, 'sets', 'rpe', 'REAL');
+
   // Table de l'autocomplete pour les noms d'exercices
   db.execSync(`
     CREATE TABLE IF NOT EXISTS exercise_names (
@@ -83,6 +87,40 @@ function _initDatabase(db: SQLite.SQLiteDatabase): void {
 // ============================================================
 // Utilitaires
 // ============================================================
+
+/**
+ * Ajoute une colonne à une table existante si elle n'existe pas déjà.
+ * SQLite n'a pas de "ADD COLUMN IF NOT EXISTS", on vérifie donc via
+ * PRAGMA table_info avant de tenter l'ALTER TABLE.
+ */
+function _addColumnIfMissing(
+  db: SQLite.SQLiteDatabase,
+  table: string,
+  column: string,
+  type: string
+): void {
+  const columns = db.getAllSync<{ name: string }>(`PRAGMA table_info(${table});`);
+  const exists = columns.some((c) => c.name === column);
+  if (!exists) {
+    db.execSync(`ALTER TABLE ${table} ADD COLUMN ${column} ${type};`);
+  }
+}
+
+/**
+ * Supprime définitivement toutes les données de l'application :
+ * séances, exercices, séries et historique d'autocomplete.
+ * Utilisé par le bouton "Réinitialiser toutes les données".
+ */
+export function resetAllData(): void {
+  const db = getDb();
+  // La suppression des séances cascade sur exercises et sets (ON DELETE CASCADE),
+  // mais on nettoie explicitement chaque table pour ne rien laisser derrière,
+  // y compris l'historique d'autocomplete qui n'est pas lié par clé étrangère.
+  db.execSync('DELETE FROM sets;');
+  db.execSync('DELETE FROM exercises;');
+  db.execSync('DELETE FROM sessions;');
+  db.execSync('DELETE FROM exercise_names;');
+}
 
 /** Génère un identifiant unique (UUID v4) */
 export function generateId(): string {

@@ -10,6 +10,7 @@ import {
 import { useState } from 'react';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { resetAllData } from '../../lib/queries';
 import { COLORS, FONTS, SPACING, RADIUS } from '../../constants/theme';
 
 export default function SettingsScreen() {
@@ -26,15 +27,34 @@ export default function SettingsScreen() {
   const handleReset = () => {
     Alert.alert(
       'Réinitialiser les données',
-      'Toutes tes séances seront supprimées définitivement. Es-tu sûr ?',
+      'Toutes tes séances, exercices et séries seront supprimés définitivement. Cette action est irréversible.',
       [
         { text: 'Annuler', style: 'cancel' },
         {
           text: 'Supprimer tout',
           style: 'destructive',
           onPress: () => {
-            // Sprint V2 : réinitialisation BDD
-            Alert.alert('Info', 'Fonctionnalité à venir.');
+            // Double confirmation car l'action est irréversible et détruit
+            // l'intégralité de l'historique de l'utilisateur.
+            Alert.alert(
+              'Es-tu vraiment sûr ?',
+              'Il n\'y a pas de retour en arrière possible après cette action.',
+              [
+                { text: 'Annuler', style: 'cancel' },
+                {
+                  text: 'Oui, tout supprimer',
+                  style: 'destructive',
+                  onPress: () => {
+                    resetAllData();
+                    Alert.alert(
+                      'Données supprimées',
+                      'Toutes tes données ont été effacées.',
+                      [{ text: 'OK', onPress: () => router.replace('/(tabs)' as any) }]
+                    );
+                  },
+                },
+              ]
+            );
           },
         },
       ]

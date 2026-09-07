@@ -6,12 +6,14 @@ import {
   StyleSheet,
   RefreshControl,
   Alert,
+  Dimensions,
 } from 'react-native';
 import { useCallback, useState, useEffect } from 'react';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/fr';
+import { BarChart } from 'react-native-gifted-charts';
 import {
   getLastSession,
   getDashboardStats,
@@ -22,6 +24,17 @@ import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
 import type { Session, DashboardStats } from '../../types';
 
 dayjs.locale('fr');
+
+const BAR_COLORS = [
+  COLORS.primary,
+  COLORS.success,
+  COLORS.warning,
+  COLORS.danger,
+  COLORS.primaryLight,
+  '#8B5CF6',
+  '#22D3EE',
+  '#F472B6',
+];
 
 export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
@@ -165,6 +178,7 @@ export default function DashboardScreen() {
         ) : (
           <EmptyState />
         )}
+
 
         {/* Records personnels */}
         {stats.personalRecords.length > 0 && (
@@ -321,6 +335,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: SPACING.md,
     marginBottom: SPACING.xl,
+  },
+
+  chartCard: {
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS.lg,
+    paddingVertical: SPACING.lg,
+    paddingHorizontal: SPACING.base,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    marginBottom: SPACING.xl,
+    overflow: 'hidden',
+    ...SHADOWS.card,
   },
 
   lastSessionCard: {

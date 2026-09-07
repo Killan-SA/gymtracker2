@@ -121,3 +121,16 @@ export function searchExercises(query: string): ExerciseEntry[] {
 export function getByCategory(category: string): ExerciseEntry[] {
   return PREDEFINED_EXERCISES.filter((e) => e.category === category);
 }
+
+/**
+ * Retourne la catégorie (groupe musculaire) d'un exercice à partir de son nom.
+ * Fonctionne aussi pour les exercices personnalisés ajoutés par l'utilisateur
+ * en cherchant une correspondance insensible à la casse/accents ; sinon 'Autre'.
+ */
+export function getCategoryForExercise(name: string): string {
+  const normalize = (s: string) =>
+    s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  const target = normalize(name);
+  const found = PREDEFINED_EXERCISES.find((e) => normalize(e.name) === target);
+  return found?.category ?? 'Autre';
+}

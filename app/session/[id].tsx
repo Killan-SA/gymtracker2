@@ -282,7 +282,8 @@ function ExerciseCard({
       <View style={cardStyles.columnsHeader}>
         <Text style={cardStyles.colLabel}>Série</Text>
         <Text style={cardStyles.colLabel}>Poids (kg)</Text>
-        <Text style={cardStyles.colLabel}>Répétitions</Text>
+        <Text style={cardStyles.colLabel}>Reps</Text>
+        <Text style={cardStyles.colLabelRpe}>RPE</Text>
         <View style={{ width: 32 }} />
       </View>
 
@@ -416,6 +417,11 @@ const cardStyles = StyleSheet.create({
     flex: 1, fontSize: FONTS.xs, color: COLORS.textMuted,
     textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: FONTS.medium,
   },
+  colLabelRpe: {
+    width: 44, fontSize: FONTS.xs, color: COLORS.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: FONTS.medium,
+    textAlign: 'center',
+  },
   noSets: {
     fontSize: FONTS.sm, color: COLORS.textMuted, textAlign: 'center',
     paddingVertical: SPACING.md, fontStyle: 'italic',
@@ -442,6 +448,12 @@ const setRowStyles = StyleSheet.create({
     flex: 1, height: 40, backgroundColor: COLORS.surface, borderRadius: RADIUS.sm,
     paddingHorizontal: SPACING.sm, fontSize: FONTS.md, fontWeight: FONTS.semibold,
     color: COLORS.textPrimary, textAlign: 'center',
+    borderWidth: 1, borderColor: COLORS.cardBorder,
+  },
+  rpeInput: {
+    width: 44, height: 40, backgroundColor: COLORS.surface, borderRadius: RADIUS.sm,
+    fontSize: FONTS.md, fontWeight: FONTS.semibold,
+    color: COLORS.warning, textAlign: 'center',
     borderWidth: 1, borderColor: COLORS.cardBorder,
   },
   deleteButton: { width: 32, alignItems: 'center' },
