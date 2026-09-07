@@ -113,7 +113,7 @@ export default function SessionDetailScreen() {
                 <Text style={styles.setVol}>
                   {Math.round(set.weight * set.reps)} kg
                 </Text>
-                <Text style={styles.setRpe}>{set.rpe != null ? set.rpe : '—'}</Text>
+
               </View>
             ))}
           </View>

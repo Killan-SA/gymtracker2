@@ -77,7 +77,7 @@ export default function SessionScreen() {
 
   const handleAddSet = (exerciseId: string) => {
     const last = getLastSetForExercise(exerciseId);
-    addSet(exerciseId, last?.weight ?? 0, last?.reps ?? 0, null);
+    addSet(exerciseId, last?.weight ?? 0, last?.reps ?? 0);
     loadSession();
   };
 
@@ -319,15 +319,12 @@ function SetRow({ set, onDelete, onReload }: {
 }) {
   const [weight, setWeight] = useState(set.weight > 0 ? set.weight.toString() : '');
   const [reps, setReps] = useState(set.reps > 0 ? set.reps.toString() : '');
-  const [rpe, setRpe] = useState(set.rpe != null ? set.rpe.toString() : '');
 
   const handleBlur = () => {
     const w = parseFloat(weight) || 0;
     const r = parseInt(reps) || 0;
-    const rawRpe = parseFloat(rpe);
-    const clampedRpe = isNaN(rawRpe) ? null : Math.min(10, Math.max(1, rawRpe));
-    if (w !== set.weight || r !== set.reps || clampedRpe !== set.rpe) {
-      updateSet(set.id, w, r, clampedRpe);
+    if (w !== set.weight || r !== set.reps) {
+      updateSet(set.id, w, r);
       onReload();
     }
   };
@@ -356,17 +353,6 @@ function SetRow({ set, onDelete, onReload }: {
         selectTextOnFocus
         placeholder="0"
         placeholderTextColor={COLORS.textMuted}
-      />
-      <TextInput
-        style={setRowStyles.rpeInput}
-        value={rpe}
-        onChangeText={setRpe}
-        onBlur={handleBlur}
-        keyboardType="number-pad"
-        selectTextOnFocus
-        placeholder="—"
-        placeholderTextColor={COLORS.textMuted}
-        maxLength={2}
       />
       <TouchableOpacity onPress={onDelete} style={setRowStyles.deleteButton}>
         <Ionicons name="close-circle" size={22} color={COLORS.textMuted} />

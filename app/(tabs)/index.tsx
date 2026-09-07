@@ -44,7 +44,6 @@ export default function DashboardScreen() {
     monthlySessionCount: 0,
     totalSessionCount: 0,
     personalRecords: [],
-    volumeByCategory: [],
   });
   const [lastSessionVolume, setLastSessionVolume] = useState(0);
 
@@ -180,36 +179,6 @@ export default function DashboardScreen() {
           <EmptyState />
         )}
 
-        {/* Volume par groupe musculaire */}
-        {stats.volumeByCategory.length > 0 && (
-          <>
-            <Text style={styles.sectionTitle}>Volume par muscle (30j)</Text>
-            <View style={styles.chartCard}>
-              <BarChart
-                data={stats.volumeByCategory.map((c, i) => ({
-                  value: c.volume,
-                  label: c.category,
-                  frontColor: BAR_COLORS[i % BAR_COLORS.length],
-                }))}
-                width={Dimensions.get('window').width - SPACING.base * 2 - SPACING.base * 2 - 20}
-                height={180}
-                barWidth={24}
-                spacing={22}
-                roundedTop
-                roundedBottom
-                yAxisTextStyle={{ color: COLORS.textMuted, fontSize: FONTS.xs }}
-                xAxisLabelTextStyle={{ color: COLORS.textMuted, fontSize: FONTS.xs }}
-                yAxisColor={COLORS.cardBorder}
-                xAxisColor={COLORS.cardBorder}
-                rulesColor={COLORS.cardBorder}
-                rulesType="solid"
-                noOfSections={4}
-                yAxisLabelSuffix=" kg"
-                hideRules={false}
-              />
-            </View>
-          </>
-        )}
 
         {/* Records personnels */}
         {stats.personalRecords.length > 0 && (

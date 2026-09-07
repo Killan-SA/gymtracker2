@@ -10,7 +10,7 @@ import {
 import { useState } from 'react';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { resetAllData } from '../../lib/database';
+import { resetAllData } from '../../lib/queries';
 import { COLORS, FONTS, SPACING, RADIUS } from '../../constants/theme';
 
 export default function SettingsScreen() {

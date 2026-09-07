@@ -1,6 +1,6 @@
 import dayjs from 'dayjs';
 import { getDb, generateId, nowISO } from './database';
-import { getCategoryForExercise } from '../constants/exercises';
+import { PREDEFINED_EXERCISES } from '../constants/exercises';
 import type {
   Session,
   Exercise,
@@ -10,8 +10,7 @@ import type {
   ChartPoint,
   ExerciseStats,
   DashboardStats,
-  CategoryVolume,
-  PlateauStatus,
+  MuscleGroupVolume,
 } from '../types';
 
 // ============================================================
@@ -81,6 +80,15 @@ export function getSessionWithExercises(sessionId: string): SessionWithExercises
   return { ...session, exercises: exercisesWithSets };
 }
 
+/** Supprime TOUTES les données (séances, exercices, séries, autocomplete) */
+export function resetAllData(): void {
+  const db = getDb();
+  db.execSync('DELETE FROM sets;');
+  db.execSync('DELETE FROM exercises;');
+  db.execSync('DELETE FROM sessions;');
+  db.execSync('DELETE FROM exercise_names;');
+}
+
 // ============================================================
 // EXERCISES
 // ============================================================
@@ -93,7 +101,6 @@ export function addExerciseToSession(
 ): Exercise {
   const db = getDb();
 
-  // Calcule le prochain order_index
   const result = db.getFirstSync<{ max_order: number | null }>(
     'SELECT MAX(order_index) as max_order FROM exercises WHERE session_id = ?',
     [sessionId]
@@ -113,7 +120,6 @@ export function addExerciseToSession(
     [exercise.id, exercise.session_id, exercise.name, exercise.order_index, exercise.notes]
   );
 
-  // Met à jour l'autocomplete
   db.runSync(
     `INSERT INTO exercise_names (name, last_used, use_count)
      VALUES (?, ?, 1)
@@ -162,7 +168,6 @@ export function addSet(
   exerciseId: string,
   weight: number,
   reps: number,
-  rpe?: number | null,
   notes?: string
 ): Set {
   const db = getDb();
@@ -179,29 +184,23 @@ export function addSet(
     set_number: setNumber,
     weight,
     reps,
-    rpe: rpe ?? null,
     notes: notes ?? null,
   };
 
   db.runSync(
-    'INSERT INTO sets (id, exercise_id, set_number, weight, reps, rpe, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [set.id, set.exercise_id, set.set_number, set.weight, set.reps, set.rpe, set.notes]
+    'INSERT INTO sets (id, exercise_id, set_number, weight, reps, notes) VALUES (?, ?, ?, ?, ?, ?)',
+    [set.id, set.exercise_id, set.set_number, set.weight, set.reps, set.notes]
   );
 
   return set;
 }
 
 /** Met à jour une série existante */
-export function updateSet(
-  setId: string,
-  weight: number,
-  reps: number,
-  rpe?: number | null
-): void {
+export function updateSet(setId: string, weight: number, reps: number): void {
   const db = getDb();
   db.runSync(
-    'UPDATE sets SET weight = ?, reps = ?, rpe = ? WHERE id = ?',
-    [weight, reps, rpe ?? null, setId]
+    'UPDATE sets SET weight = ?, reps = ? WHERE id = ?',
+    [weight, reps, setId]
   );
 }
 
@@ -276,15 +275,18 @@ export function getPersonalRecords(): { name: string; weight: number }[] {
   );
 }
 
-/** Historique du poids max par séance pour un exercice donné (graphique) */
-export function getWeightHistory(exerciseName: string): ChartPoint[] {
+/** Historique du poids max par séance pour un exercice donné */
+export function getWeightHistory(exerciseName: string, daysBack?: number): ChartPoint[] {
   const db = getDb();
+  const dateFilter = daysBack
+    ? `AND sess.date >= '${dayjs().subtract(daysBack, 'day').toISOString()}'`
+    : '';
   const rows = db.getAllSync<{ date: string; max_weight: number }>(
     `SELECT sess.date, MAX(s.weight) as max_weight
      FROM sets s
      JOIN exercises e ON s.exercise_id = e.id
      JOIN sessions sess ON e.session_id = sess.id
-     WHERE e.name = ?
+     WHERE e.name = ? ${dateFilter}
      GROUP BY sess.id
      ORDER BY sess.date ASC`,
     [exerciseName]
@@ -296,115 +298,90 @@ export function getWeightHistory(exerciseName: string): ChartPoint[] {
   }));
 }
 
-/**
- * Estime la charge maximale sur une répétition (1RM) à partir d'une série
- * réalisée, avec la formule d'Epley : 1RM = poids × (1 + reps / 30).
- * Fiable jusqu'à environ 10-12 répétitions.
- */
-export function estimateOneRM(weight: number, reps: number): number {
-  if (weight <= 0 || reps <= 0) return 0;
-  if (reps === 1) return weight;
-  return weight * (1 + reps / 30);
-}
-
-/**
- * Historique du 1RM estimé par séance pour un exercice donné : pour chaque
- * séance, on retient la série qui donne le meilleur 1RM estimé (pas
- * forcément la plus lourde — une série à réps élevées peut donner un 1RM
- * estimé supérieur à une série lourde à faible répétitions).
- */
-export function getOneRMHistory(exerciseName: string): ChartPoint[] {
+/** Historique du volume total par séance pour un exercice donné */
+export function getVolumeHistory(exerciseName: string, daysBack?: number): ChartPoint[] {
   const db = getDb();
-  const rows = db.getAllSync<{ date: string; weight: number; reps: number }>(
-    `SELECT sess.date, s.weight, s.reps
+  const dateFilter = daysBack
+    ? `AND sess.date >= '${dayjs().subtract(daysBack, 'day').toISOString()}'`
+    : '';
+  const rows = db.getAllSync<{ date: string; total_volume: number }>(
+    `SELECT sess.date, SUM(s.weight * s.reps) as total_volume
      FROM sets s
      JOIN exercises e ON s.exercise_id = e.id
      JOIN sessions sess ON e.session_id = sess.id
-     WHERE e.name = ?
+     WHERE e.name = ? ${dateFilter}
+     GROUP BY sess.id
      ORDER BY sess.date ASC`,
     [exerciseName]
   );
+  return rows.map((r) => ({
+    date: r.date,
+    value: Math.round(r.total_volume),
+    label: dayjs(r.date).format('DD/MM'),
+  }));
+}
 
-  // Regroupe par séance et garde le meilleur 1RM estimé de chaque séance
-  const bySession = new Map<string, number>();
-  for (const r of rows) {
-    const oneRM = estimateOneRM(r.weight, r.reps);
-    const key = r.date; // même date que la séance (jointe via sess.date)
-    const current = bySession.get(key) ?? 0;
-    if (oneRM > current) bySession.set(key, oneRM);
-  }
-
-  return Array.from(bySession.entries()).map(([date, value]) => ({
-    date,
-    value: Math.round(value * 10) / 10,
-    label: dayjs(date).format('DD/MM'),
+/** Historique des répétitions max par séance pour un exercice donné */
+export function getRepsHistory(exerciseName: string, daysBack?: number): ChartPoint[] {
+  const db = getDb();
+  const dateFilter = daysBack
+    ? `AND sess.date >= '${dayjs().subtract(daysBack, 'day').toISOString()}'`
+    : '';
+  const rows = db.getAllSync<{ date: string; max_reps: number }>(
+    `SELECT sess.date, MAX(s.reps) as max_reps
+     FROM sets s
+     JOIN exercises e ON s.exercise_id = e.id
+     JOIN sessions sess ON e.session_id = sess.id
+     WHERE e.name = ? ${dateFilter}
+     GROUP BY sess.id
+     ORDER BY sess.date ASC`,
+    [exerciseName]
+  );
+  return rows.map((r) => ({
+    date: r.date,
+    value: r.max_reps,
+    label: dayjs(r.date).format('DD/MM'),
   }));
 }
 
 /**
- * Analyse une série de valeurs (poids ou 1RM par séance) et détecte un
- * plateau ou une régression : pas de nouveau record depuis plusieurs
- * séances, ce qui peut suggérer une semaine de décharge ou un changement
- * de stimulus (reps, tempo, exercice).
+ * 1RM estimé via formule d'Epley : weight * (1 + reps / 30)
+ * Retourne le meilleur 1RM estimé parmi toutes les séries de cet exercice
  */
-export function detectPlateau(history: ChartPoint[]): {
-  status: PlateauStatus;
-  sessionsSinceProgress: number;
-  message: string;
-} {
-  const PLATEAU_THRESHOLD = 4; // séances sans record avant d'alerter
+function estimateOneRM(exerciseName: string): number {
+  const db = getDb();
+  const best = db.getFirstSync<{ weight: number; reps: number } | null>(
+    `SELECT s.weight, s.reps
+     FROM sets s
+     JOIN exercises e ON s.exercise_id = e.id
+     WHERE e.name = ? AND s.reps > 0 AND s.weight > 0
+     ORDER BY (s.weight * (1.0 + s.reps / 30.0)) DESC
+     LIMIT 1`,
+    [exerciseName]
+  );
+  if (!best) return 0;
+  return Math.round(best.weight * (1 + best.reps / 30));
+}
 
-  if (history.length < 3) {
-    return {
-      status: 'insufficient_data',
-      sessionsSinceProgress: 0,
-      message: 'Pas encore assez de séances pour analyser ta progression.',
-    };
-  }
-
-  // Trouve l'index du meilleur score (record) et sa valeur
-  let bestIndex = 0;
-  let bestValue = history[0].value;
-  for (let i = 1; i < history.length; i++) {
-    if (history[i].value >= bestValue) {
-      bestValue = history[i].value;
-      bestIndex = i;
-    }
-  }
-
-  const sessionsSinceProgress = history.length - 1 - bestIndex;
-  const lastValue = history[history.length - 1].value;
-
-  if (sessionsSinceProgress < PLATEAU_THRESHOLD) {
-    return {
-      status: 'progressing',
-      sessionsSinceProgress,
-      message: 'Tu progresses bien, continue comme ça 💪',
-    };
-  }
-
-  // Régression nette : la dernière valeur est sous 97% du record
-  if (lastValue < bestValue * 0.97) {
-    return {
-      status: 'declining',
-      sessionsSinceProgress,
-      message: `Ta charge a baissé depuis ${sessionsSinceProgress} séances. Pense à la récupération (sommeil, stress) ou à une semaine de décharge.`,
-    };
-  }
-
-  return {
-    status: 'plateau',
-    sessionsSinceProgress,
-    message: `Aucun nouveau record depuis ${sessionsSinceProgress} séances. Essaie une décharge, varie les répétitions ou change de variante d'exercice.`,
-  };
+/**
+ * Détection de plateau : si les 3 derniers points de l'historique
+ * montrent une stagnation ou régression du poids max.
+ */
+function detectPlateau(history: ChartPoint[]): boolean {
+  if (history.length < 3) return false;
+  const last3 = history.slice(-3);
+  const first = last3[0].value;
+  return last3.every((p) => p.value <= first);
 }
 
 /** Statistiques complètes d'un exercice */
-export function getExerciseStats(exerciseName: string): ExerciseStats {
-  const weightHistory = getWeightHistory(exerciseName);
-  const oneRMHistory = getOneRMHistory(exerciseName);
+export function getExerciseStats(exerciseName: string, daysBack?: number): ExerciseStats {
+  const weightHistory = getWeightHistory(exerciseName, daysBack);
+  const volumeHistory = getVolumeHistory(exerciseName, daysBack);
+  const repsHistory   = getRepsHistory(exerciseName, daysBack);
   const db = getDb();
 
+  // Record personnel
   const prResult = db.getFirstSync<{ pr: number | null }>(
     `SELECT MAX(s.weight) as pr
      FROM sets s
@@ -414,14 +391,26 @@ export function getExerciseStats(exerciseName: string): ExerciseStats {
   );
   const personalRecord = prResult?.pr ?? 0;
 
-  const estimatedOneRM = oneRMHistory.length > 0
-    ? Math.max(...oneRMHistory.map((p) => p.value))
-    : 0;
-
+  // Poids lors de la dernière séance
   const lastWeight = weightHistory.length > 0
     ? weightHistory[weightHistory.length - 1].value
     : 0;
 
+  // Première performance (base de départ)
+  const firstResult = db.getFirstSync<{ weight: number; date: string } | null>(
+    `SELECT s.weight, sess.date
+     FROM sets s
+     JOIN exercises e ON s.exercise_id = e.id
+     JOIN sessions sess ON e.session_id = sess.id
+     WHERE e.name = ? AND s.weight > 0
+     ORDER BY sess.date ASC
+     LIMIT 1`,
+    [exerciseName]
+  );
+  const firstWeight = firstResult?.weight ?? lastWeight;
+  const firstDate   = firstResult?.date ?? '';
+
+  // Nombre de séances
   const countResult = db.getFirstSync<{ count: number }>(
     `SELECT COUNT(DISTINCT sess.id) as count
      FROM exercises e
@@ -446,50 +435,64 @@ export function getExerciseStats(exerciseName: string): ExerciseStats {
     ? Math.round(((lastWeight - oldWeight) / oldWeight) * 100)
     : 0;
 
-  // Détection de plateau / régression basée sur le 1RM estimé, plus fiable
-  // que le poids brut car il prend en compte les répétitions.
-  const plateau = detectPlateau(oneRMHistory);
+  // Progression depuis le début
+  const progressionFromStart = Math.round((lastWeight - firstWeight) * 10) / 10;
+  const progressionFromStartPercent = firstWeight > 0
+    ? Math.round(((lastWeight - firstWeight) / firstWeight) * 100)
+    : 0;
+
+  // 1RM Epley
+  const estimated1RM = estimateOneRM(exerciseName);
+
+  // Détection plateau
+  const plateauDetected = detectPlateau(weightHistory);
 
   return {
     name: exerciseName,
     personalRecord,
     lastWeight,
+    firstWeight,
+    firstDate,
     totalSessions,
     progressionPercent,
+    progressionFromStart,
+    progressionFromStartPercent,
+    estimated1RM,
+    plateauDetected,
     weightHistory,
-    estimatedOneRM: Math.round(estimatedOneRM * 10) / 10,
-    oneRMHistory,
-    plateau,
+    volumeHistory,
+    repsHistory,
   };
 }
 
-/**
- * Volume total par groupe musculaire sur une période donnée (30 jours par
- * défaut). Les exercices personnalisés non reconnus sont classés "Autre".
- */
-export function getVolumeByCategory(days: number = 30): CategoryVolume[] {
+/** Volume par groupe musculaire (sur les N derniers jours, ou tout temps si omis) */
+export function getVolumeByMuscleGroup(daysBack?: number): MuscleGroupVolume[] {
   const db = getDb();
-  const since = dayjs().subtract(days, 'day').toISOString();
+  const dateFilter = daysBack
+    ? `AND sess.date >= '${dayjs().subtract(daysBack, 'day').toISOString()}'`
+    : '';
 
   const rows = db.getAllSync<{ name: string; volume: number }>(
     `SELECT e.name, SUM(s.weight * s.reps) as volume
      FROM sets s
      JOIN exercises e ON s.exercise_id = e.id
      JOIN sessions sess ON e.session_id = sess.id
-     WHERE sess.date >= ?
+     WHERE s.weight > 0 ${dateFilter}
      GROUP BY e.name`,
-    [since]
   );
 
-  const byCategory = new Map<string, number>();
+  // Mapper chaque exercice à sa catégorie
+  const categoryMap = new Map<string, number>();
   for (const row of rows) {
-    const category = getCategoryForExercise(row.name);
-    byCategory.set(category, (byCategory.get(category) ?? 0) + (row.volume ?? 0));
+    const entry = PREDEFINED_EXERCISES.find(
+      (pe) => pe.name.toLowerCase() === row.name.toLowerCase()
+    );
+    const cat = entry?.category ?? 'Autre';
+    categoryMap.set(cat, (categoryMap.get(cat) ?? 0) + row.volume);
   }
 
-  return Array.from(byCategory.entries())
+  return Array.from(categoryMap.entries())
     .map(([category, volume]) => ({ category, volume: Math.round(volume) }))
-    .filter((c) => c.volume > 0)
     .sort((a, b) => b.volume - a.volume);
 }
 
@@ -505,6 +508,5 @@ export function getDashboardStats(): DashboardStats {
     monthlySessionCount: getMonthlySessionCount(),
     totalSessionCount: countResult?.count ?? 0,
     personalRecords: getPersonalRecords(),
-    volumeByCategory: getVolumeByCategory(30),
   };
 }

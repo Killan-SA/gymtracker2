@@ -26,7 +26,6 @@ export interface Set {
   set_number: number;
   weight: number;         // En kg
   reps: number;
-  rpe: number | null;     // Difficulté ressentie (RPE/RIR), 1-10
   notes: string | null;
 }
 
@@ -62,30 +61,22 @@ export interface ChartPoint {
   label?: string;
 }
 
-/** Statut de progression pour la détection de plateau/deload */
-export type PlateauStatus = 'progressing' | 'plateau' | 'declining' | 'insufficient_data';
-
 /** Statistiques d'un exercice */
 export interface ExerciseStats {
   name: string;
-  personalRecord: number;         // Poids max tous temps
-  lastWeight: number;             // Poids lors de la dernière séance
-  totalSessions: number;          // Nombre de fois pratiqué
-  progressionPercent: number;     // Progression sur 30 jours (%)
-  weightHistory: ChartPoint[];    // Historique pour le graphique
-  estimatedOneRM: number;         // Meilleur 1RM estimé (formule d'Epley), en kg
-  oneRMHistory: ChartPoint[];     // Historique du 1RM estimé par séance
-  plateau: {
-    status: PlateauStatus;
-    sessionsSinceProgress: number; // Nb de séances depuis le dernier record
-    message: string;               // Message explicatif à afficher
-  };
-}
-
-/** Volume total pour un groupe musculaire donné */
-export interface CategoryVolume {
-  category: string;
-  volume: number;
+  personalRecord: number;             // Poids max tous temps
+  lastWeight: number;                 // Poids lors de la dernière séance
+  firstWeight: number;                // Poids lors de la première séance (base de départ)
+  firstDate: string;                  // Date de la première séance
+  totalSessions: number;              // Nombre de fois pratiqué
+  progressionPercent: number;         // Progression sur 30 jours (%)
+  progressionFromStart: number;       // Gain kg depuis le début
+  progressionFromStartPercent: number;// Gain % depuis le début
+  estimated1RM: number;               // 1RM estimé par formule d'Epley
+  plateauDetected: boolean;           // Plateau détecté sur les 3 dernières séances
+  weightHistory: ChartPoint[];        // Historique poids max par séance
+  volumeHistory: ChartPoint[];        // Historique volume (poids×reps) par séance
+  repsHistory: ChartPoint[];          // Historique reps max par séance
 }
 
 /** Stats du tableau de bord */
@@ -94,5 +85,10 @@ export interface DashboardStats {
   monthlySessionCount: number;    // Séances ce mois
   totalSessionCount: number;      // Total des séances
   personalRecords: { name: string; weight: number }[];
-  volumeByCategory: CategoryVolume[]; // Volume par groupe musculaire (30 derniers jours)
+}
+
+/** Volume par groupe musculaire */
+export interface MuscleGroupVolume {
+  category: string;
+  volume: number;
 }
