@@ -23,7 +23,7 @@ export default function RootLayout() {
 
   return (
     <>
-      <StatusBar style="light" backgroundColor={COLORS.background} />
+      <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen
@@ -52,6 +52,16 @@ export default function RootLayout() {
             headerStyle: { backgroundColor: COLORS.surface },
             headerTintColor: COLORS.textPrimary,
             headerTitle: 'Progression',
+          }}
+        />
+        <Stack.Screen
+          name="import"
+          options={{
+            headerShown: true,
+            headerStyle: { backgroundColor: COLORS.surface },
+            headerTintColor: COLORS.textPrimary,
+            headerTitle: 'Importer un historique',
+            presentation: 'modal',
           }}
         />
       </Stack>

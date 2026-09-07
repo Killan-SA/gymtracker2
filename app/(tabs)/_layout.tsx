@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform, StyleSheet, View } from 'react-native';
+import { ColorValue, Platform, StyleSheet, View } from 'react-native';
 import { COLORS, FONTS } from '../../constants/theme';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
@@ -13,7 +13,7 @@ function TabIcon({
 }: {
   name: IoniconsName;
   nameActive: IoniconsName;
-  color: string;
+  color: ColorValue;
   focused: boolean;
 }) {
   return (
