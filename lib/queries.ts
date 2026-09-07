@@ -1,5 +1,6 @@
 import dayjs from 'dayjs';
 import { getDb, generateId, nowISO } from './database';
+import { getCategoryForExercise } from '../constants/exercises';
 import type {
   Session,
   Exercise,
@@ -9,6 +10,8 @@ import type {
   ChartPoint,
   ExerciseStats,
   DashboardStats,
+  CategoryVolume,
+  PlateauStatus,
 } from '../types';
 
 // ============================================================
@@ -159,6 +162,7 @@ export function addSet(
   exerciseId: string,
   weight: number,
   reps: number,
+  rpe?: number | null,
   notes?: string
 ): Set {
   const db = getDb();
@@ -175,12 +179,13 @@ export function addSet(
     set_number: setNumber,
     weight,
     reps,
+    rpe: rpe ?? null,
     notes: notes ?? null,
   };
 
   db.runSync(
-    'INSERT INTO sets (id, exercise_id, set_number, weight, reps, notes) VALUES (?, ?, ?, ?, ?, ?)',
-    [set.id, set.exercise_id, set.set_number, set.weight, set.reps, set.notes]
+    'INSERT INTO sets (id, exercise_id, set_number, weight, reps, rpe, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [set.id, set.exercise_id, set.set_number, set.weight, set.reps, set.rpe, set.notes]
   );
 
   return set;
@@ -190,12 +195,13 @@ export function addSet(
 export function updateSet(
   setId: string,
   weight: number,
-  reps: number
+  reps: number,
+  rpe?: number | null
 ): void {
   const db = getDb();
   db.runSync(
-    'UPDATE sets SET weight = ?, reps = ? WHERE id = ?',
-    [weight, reps, setId]
+    'UPDATE sets SET weight = ?, reps = ?, rpe = ? WHERE id = ?',
+    [weight, reps, rpe ?? null, setId]
   );
 }
 
@@ -290,9 +296,113 @@ export function getWeightHistory(exerciseName: string): ChartPoint[] {
   }));
 }
 
+/**
+ * Estime la charge maximale sur une répétition (1RM) à partir d'une série
+ * réalisée, avec la formule d'Epley : 1RM = poids × (1 + reps / 30).
+ * Fiable jusqu'à environ 10-12 répétitions.
+ */
+export function estimateOneRM(weight: number, reps: number): number {
+  if (weight <= 0 || reps <= 0) return 0;
+  if (reps === 1) return weight;
+  return weight * (1 + reps / 30);
+}
+
+/**
+ * Historique du 1RM estimé par séance pour un exercice donné : pour chaque
+ * séance, on retient la série qui donne le meilleur 1RM estimé (pas
+ * forcément la plus lourde — une série à réps élevées peut donner un 1RM
+ * estimé supérieur à une série lourde à faible répétitions).
+ */
+export function getOneRMHistory(exerciseName: string): ChartPoint[] {
+  const db = getDb();
+  const rows = db.getAllSync<{ date: string; weight: number; reps: number }>(
+    `SELECT sess.date, s.weight, s.reps
+     FROM sets s
+     JOIN exercises e ON s.exercise_id = e.id
+     JOIN sessions sess ON e.session_id = sess.id
+     WHERE e.name = ?
+     ORDER BY sess.date ASC`,
+    [exerciseName]
+  );
+
+  // Regroupe par séance et garde le meilleur 1RM estimé de chaque séance
+  const bySession = new Map<string, number>();
+  for (const r of rows) {
+    const oneRM = estimateOneRM(r.weight, r.reps);
+    const key = r.date; // même date que la séance (jointe via sess.date)
+    const current = bySession.get(key) ?? 0;
+    if (oneRM > current) bySession.set(key, oneRM);
+  }
+
+  return Array.from(bySession.entries()).map(([date, value]) => ({
+    date,
+    value: Math.round(value * 10) / 10,
+    label: dayjs(date).format('DD/MM'),
+  }));
+}
+
+/**
+ * Analyse une série de valeurs (poids ou 1RM par séance) et détecte un
+ * plateau ou une régression : pas de nouveau record depuis plusieurs
+ * séances, ce qui peut suggérer une semaine de décharge ou un changement
+ * de stimulus (reps, tempo, exercice).
+ */
+export function detectPlateau(history: ChartPoint[]): {
+  status: PlateauStatus;
+  sessionsSinceProgress: number;
+  message: string;
+} {
+  const PLATEAU_THRESHOLD = 4; // séances sans record avant d'alerter
+
+  if (history.length < 3) {
+    return {
+      status: 'insufficient_data',
+      sessionsSinceProgress: 0,
+      message: 'Pas encore assez de séances pour analyser ta progression.',
+    };
+  }
+
+  // Trouve l'index du meilleur score (record) et sa valeur
+  let bestIndex = 0;
+  let bestValue = history[0].value;
+  for (let i = 1; i < history.length; i++) {
+    if (history[i].value >= bestValue) {
+      bestValue = history[i].value;
+      bestIndex = i;
+    }
+  }
+
+  const sessionsSinceProgress = history.length - 1 - bestIndex;
+  const lastValue = history[history.length - 1].value;
+
+  if (sessionsSinceProgress < PLATEAU_THRESHOLD) {
+    return {
+      status: 'progressing',
+      sessionsSinceProgress,
+      message: 'Tu progresses bien, continue comme ça 💪',
+    };
+  }
+
+  // Régression nette : la dernière valeur est sous 97% du record
+  if (lastValue < bestValue * 0.97) {
+    return {
+      status: 'declining',
+      sessionsSinceProgress,
+      message: `Ta charge a baissé depuis ${sessionsSinceProgress} séances. Pense à la récupération (sommeil, stress) ou à une semaine de décharge.`,
+    };
+  }
+
+  return {
+    status: 'plateau',
+    sessionsSinceProgress,
+    message: `Aucun nouveau record depuis ${sessionsSinceProgress} séances. Essaie une décharge, varie les répétitions ou change de variante d'exercice.`,
+  };
+}
+
 /** Statistiques complètes d'un exercice */
 export function getExerciseStats(exerciseName: string): ExerciseStats {
   const weightHistory = getWeightHistory(exerciseName);
+  const oneRMHistory = getOneRMHistory(exerciseName);
   const db = getDb();
 
   const prResult = db.getFirstSync<{ pr: number | null }>(
@@ -303,6 +413,10 @@ export function getExerciseStats(exerciseName: string): ExerciseStats {
     [exerciseName]
   );
   const personalRecord = prResult?.pr ?? 0;
+
+  const estimatedOneRM = oneRMHistory.length > 0
+    ? Math.max(...oneRMHistory.map((p) => p.value))
+    : 0;
 
   const lastWeight = weightHistory.length > 0
     ? weightHistory[weightHistory.length - 1].value
@@ -332,6 +446,10 @@ export function getExerciseStats(exerciseName: string): ExerciseStats {
     ? Math.round(((lastWeight - oldWeight) / oldWeight) * 100)
     : 0;
 
+  // Détection de plateau / régression basée sur le 1RM estimé, plus fiable
+  // que le poids brut car il prend en compte les répétitions.
+  const plateau = detectPlateau(oneRMHistory);
+
   return {
     name: exerciseName,
     personalRecord,
@@ -339,7 +457,40 @@ export function getExerciseStats(exerciseName: string): ExerciseStats {
     totalSessions,
     progressionPercent,
     weightHistory,
+    estimatedOneRM: Math.round(estimatedOneRM * 10) / 10,
+    oneRMHistory,
+    plateau,
   };
+}
+
+/**
+ * Volume total par groupe musculaire sur une période donnée (30 jours par
+ * défaut). Les exercices personnalisés non reconnus sont classés "Autre".
+ */
+export function getVolumeByCategory(days: number = 30): CategoryVolume[] {
+  const db = getDb();
+  const since = dayjs().subtract(days, 'day').toISOString();
+
+  const rows = db.getAllSync<{ name: string; volume: number }>(
+    `SELECT e.name, SUM(s.weight * s.reps) as volume
+     FROM sets s
+     JOIN exercises e ON s.exercise_id = e.id
+     JOIN sessions sess ON e.session_id = sess.id
+     WHERE sess.date >= ?
+     GROUP BY e.name`,
+    [since]
+  );
+
+  const byCategory = new Map<string, number>();
+  for (const row of rows) {
+    const category = getCategoryForExercise(row.name);
+    byCategory.set(category, (byCategory.get(category) ?? 0) + (row.volume ?? 0));
+  }
+
+  return Array.from(byCategory.entries())
+    .map(([category, volume]) => ({ category, volume: Math.round(volume) }))
+    .filter((c) => c.volume > 0)
+    .sort((a, b) => b.volume - a.volume);
 }
 
 /** Données complètes du tableau de bord */
@@ -354,5 +505,6 @@ export function getDashboardStats(): DashboardStats {
     monthlySessionCount: getMonthlySessionCount(),
     totalSessionCount: countResult?.count ?? 0,
     personalRecords: getPersonalRecords(),
+    volumeByCategory: getVolumeByCategory(30),
   };
 }

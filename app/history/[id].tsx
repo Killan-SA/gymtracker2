@@ -103,6 +103,7 @@ export default function SessionDetailScreen() {
               <Text style={styles.colHeader}>Poids</Text>
               <Text style={styles.colHeader}>Reps</Text>
               <Text style={styles.colHeader}>Volume</Text>
+              <Text style={styles.colHeaderRpe}>RPE</Text>
             </View>
             {exercise.sets.map((set) => (
               <View key={set.id} style={styles.setRow}>
@@ -112,6 +113,7 @@ export default function SessionDetailScreen() {
                 <Text style={styles.setVol}>
                   {Math.round(set.weight * set.reps)} kg
                 </Text>
+                <Text style={styles.setRpe}>{set.rpe != null ? set.rpe : '—'}</Text>
               </View>
             ))}
           </View>
@@ -209,6 +211,14 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     textAlign: 'center',
   },
+  colHeaderRpe: {
+    width: 36,
+    fontSize: FONTS.xs,
+    fontWeight: FONTS.semibold,
+    color: COLORS.textMuted,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
   setRow: {
     flexDirection: 'row',
     paddingVertical: SPACING.sm,
@@ -234,6 +244,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: FONTS.sm,
     color: COLORS.textSecondary,
+  },
+  setRpe: {
+    width: 36,
+    textAlign: 'center',
+    fontSize: FONTS.sm,
+    fontWeight: FONTS.semibold,
+    color: COLORS.warning,
   },
 
   deleteButton: {

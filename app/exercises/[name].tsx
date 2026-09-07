@@ -4,11 +4,13 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
+import { LineChart } from 'react-native-gifted-charts';
 import { getExerciseStats } from '../../lib/queries';
 import { COLORS, FONTS, SPACING, RADIUS } from '../../constants/theme';
 import type { ExerciseStats } from '../../types';
@@ -74,18 +76,72 @@ export default function ExerciseDetailScreen() {
         />
       </View>
 
-      {/* Graphique — Sprint 4 */}
+      {/* Graphique d'évolution du poids */}
       <Text style={styles.sectionTitle}>Évolution du poids</Text>
       {hasHistory ? (
-        <View style={styles.chartPlaceholder}>
-          {/* Les graphiques seront ajoutés au Sprint 4 */}
-          <Ionicons name="bar-chart" size={40} color={COLORS.primary} />
-          <Text style={styles.chartPlaceholderText}>
-            Graphique disponible au Sprint 4
-          </Text>
-          <Text style={styles.chartSubtext}>
-            {stats.weightHistory.length} point(s) de données
-          </Text>
+        <View style={styles.chartCard}>
+          {stats.weightHistory.length > 1 ? (
+            <LineChart
+              data={stats.weightHistory.map((p) => ({
+                value: p.value,
+                label: p.label,
+              }))}
+              width={Dimensions.get('window').width - SPACING.base * 2 - SPACING.base * 2 - 20}
+              height={180}
+              spacing={Math.max(
+                36,
+                (Dimensions.get('window').width - SPACING.base * 4 - 40) /
+                  Math.max(stats.weightHistory.length - 1, 1)
+              )}
+              initialSpacing={16}
+              endSpacing={16}
+              color={COLORS.primary}
+              thickness={2.5}
+              startFillColor={COLORS.primary}
+              endFillColor={COLORS.background}
+              startOpacity={0.35}
+              endOpacity={0.02}
+              areaChart
+              curved
+              dataPointsColor={COLORS.primary}
+              dataPointsRadius={4}
+              yAxisTextStyle={{ color: COLORS.textMuted, fontSize: FONTS.xs }}
+              xAxisLabelTextStyle={{ color: COLORS.textMuted, fontSize: FONTS.xs }}
+              yAxisColor={COLORS.cardBorder}
+              xAxisColor={COLORS.cardBorder}
+              rulesColor={COLORS.cardBorder}
+              rulesType="solid"
+              noOfSections={4}
+              yAxisLabelSuffix=" kg"
+              hideDataPoints={false}
+              showVerticalLines={false}
+              pointerConfig={{
+                pointerStripHeight: 160,
+                pointerStripColor: COLORS.primary,
+                pointerStripUptoDataPoint: true,
+                pointerColor: COLORS.primary,
+                radius: 5,
+                pointerLabelWidth: 80,
+                pointerLabelHeight: 40,
+                activatePointersOnLongPress: true,
+                autoAdjustPointerLabelPosition: true,
+                pointerLabelComponent: (items: any) => (
+                  <View style={styles.tooltip}>
+                    <Text style={styles.tooltipText}>
+                      {items[0]?.value} kg
+                    </Text>
+                  </View>
+                ),
+              }}
+            />
+          ) : (
+            <View style={styles.singlePoint}>
+              <Ionicons name="analytics" size={32} color={COLORS.primary} />
+              <Text style={styles.chartSubtext}>
+                Encore une séance pour voir la courbe
+              </Text>
+            </View>
+          )}
         </View>
       ) : (
         <View style={styles.noData}>
@@ -170,6 +226,34 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
 
+  plateauBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    padding: SPACING.base,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    marginBottom: SPACING.md,
+  },
+  plateauBannerSuccess: {
+    backgroundColor: COLORS.successGlow,
+    borderColor: `${COLORS.success}40`,
+  },
+  plateauBannerWarning: {
+    backgroundColor: COLORS.warningGlow,
+    borderColor: `${COLORS.warning}40`,
+  },
+  plateauBannerDanger: {
+    backgroundColor: COLORS.dangerGlow,
+    borderColor: `${COLORS.danger}40`,
+  },
+  plateauText: {
+    flex: 1,
+    fontSize: FONTS.sm,
+    color: COLORS.textPrimary,
+    lineHeight: 19,
+  },
+
   sectionTitle: {
     fontSize: FONTS.xs,
     fontWeight: FONTS.semibold,
@@ -180,24 +264,34 @@ const styles = StyleSheet.create({
     marginTop: SPACING.lg,
   },
 
-  chartPlaceholder: {
+  chartCard: {
     backgroundColor: COLORS.card,
     borderRadius: RADIUS.lg,
-    padding: SPACING.xl,
-    alignItems: 'center',
-    gap: SPACING.sm,
+    paddingVertical: SPACING.lg,
+    paddingHorizontal: SPACING.base,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
-    borderStyle: 'dashed',
+    overflow: 'hidden',
   },
-  chartPlaceholderText: {
-    fontSize: FONTS.base,
-    color: COLORS.textSecondary,
-    fontWeight: FONTS.medium,
+  singlePoint: {
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingVertical: SPACING.xl,
   },
   chartSubtext: {
     fontSize: FONTS.sm,
     color: COLORS.textMuted,
+  },
+  tooltip: {
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.sm,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  tooltipText: {
+    color: COLORS.textPrimary,
+    fontSize: FONTS.xs,
+    fontWeight: FONTS.bold,
   },
 
   noData: {

@@ -6,12 +6,14 @@ import {
   StyleSheet,
   RefreshControl,
   Alert,
+  Dimensions,
 } from 'react-native';
 import { useCallback, useState, useEffect } from 'react';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/fr';
+import { BarChart } from 'react-native-gifted-charts';
 import {
   getLastSession,
   getDashboardStats,
@@ -23,6 +25,17 @@ import type { Session, DashboardStats } from '../../types';
 
 dayjs.locale('fr');
 
+const BAR_COLORS = [
+  COLORS.primary,
+  COLORS.success,
+  COLORS.warning,
+  COLORS.danger,
+  COLORS.primaryLight,
+  '#8B5CF6',
+  '#22D3EE',
+  '#F472B6',
+];
+
 export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastSession, setLastSession] = useState<Session | null>(null);
@@ -31,6 +44,7 @@ export default function DashboardScreen() {
     monthlySessionCount: 0,
     totalSessionCount: 0,
     personalRecords: [],
+    volumeByCategory: [],
   });
   const [lastSessionVolume, setLastSessionVolume] = useState(0);
 
@@ -164,6 +178,37 @@ export default function DashboardScreen() {
           </>
         ) : (
           <EmptyState />
+        )}
+
+        {/* Volume par groupe musculaire */}
+        {stats.volumeByCategory.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>Volume par muscle (30j)</Text>
+            <View style={styles.chartCard}>
+              <BarChart
+                data={stats.volumeByCategory.map((c, i) => ({
+                  value: c.volume,
+                  label: c.category,
+                  frontColor: BAR_COLORS[i % BAR_COLORS.length],
+                }))}
+                width={Dimensions.get('window').width - SPACING.base * 2 - SPACING.base * 2 - 20}
+                height={180}
+                barWidth={24}
+                spacing={22}
+                roundedTop
+                roundedBottom
+                yAxisTextStyle={{ color: COLORS.textMuted, fontSize: FONTS.xs }}
+                xAxisLabelTextStyle={{ color: COLORS.textMuted, fontSize: FONTS.xs }}
+                yAxisColor={COLORS.cardBorder}
+                xAxisColor={COLORS.cardBorder}
+                rulesColor={COLORS.cardBorder}
+                rulesType="solid"
+                noOfSections={4}
+                yAxisLabelSuffix=" kg"
+                hideRules={false}
+              />
+            </View>
+          </>
         )}
 
         {/* Records personnels */}
@@ -321,6 +366,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: SPACING.md,
     marginBottom: SPACING.xl,
+  },
+
+  chartCard: {
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS.lg,
+    paddingVertical: SPACING.lg,
+    paddingHorizontal: SPACING.base,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    marginBottom: SPACING.xl,
+    overflow: 'hidden',
+    ...SHADOWS.card,
   },
 
   lastSessionCard: {

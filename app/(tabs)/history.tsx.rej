@@ -1,0 +1,283 @@
+diff a/app/(tabs)/history.tsx b/app/(tabs)/history.tsx	(rejected hunks)
+@@ -2,14 +2,15 @@ import {
+   View,
+   Text,
+   FlatList,
++  ScrollView,
+   TouchableOpacity,
+   StyleSheet,
+   Alert,
+ } from 'react-native';
+-import { useState, useCallback, useEffect } from 'react';
++import { useState, useCallback, useMemo } from 'react';
+ import { router, useFocusEffect } from 'expo-router';
+ import { Ionicons } from '@expo/vector-icons';
+-import dayjs from 'dayjs';
++import dayjs, { Dayjs } from 'dayjs';
+ import 'dayjs/locale/fr';
+ import {
+   getAllSessions,
+@@ -22,9 +23,12 @@ import type { Session } from '../../types';
+ dayjs.locale('fr');
+ 
+ type SessionWithVolume = Session & { volume: number };
++type ViewMode = 'list' | 'calendar';
+ 
+ export default function HistoryScreen() {
+   const [sessions, setSessions] = useState<SessionWithVolume[]>([]);
++  const [viewMode, setViewMode] = useState<ViewMode>('list');
++  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+ 
+   const loadSessions = useCallback(() => {
+     const rawSessions = getAllSessions();
+@@ -56,30 +60,98 @@ export default function HistoryScreen() {
+     );
+   };
+ 
+-  if (sessions.length === 0) {
+-    return (
+-      <View style={styles.container}>
+-        <EmptyHistory />
+-      </View>
+-    );
+-  }
++  // Séances du jour sélectionné (vue calendrier)
++  const selectedDaySessions = useMemo(() => {
++    if (!selectedDate) return [];
++    return sessions.filter((s) => dayjs(s.date).isSame(selectedDate, 'day'));
++  }, [sessions, selectedDate]);
++
++  const isEmpty = sessions.length === 0;
+ 
+   return (
+     <View style={styles.container}>
+-      <FlatList
+-        data={sessions}
+-        keyExtractor={(item) => item.id}
+-        contentContainerStyle={styles.listContent}
+-        showsVerticalScrollIndicator={false}
+-        renderItem={({ item }) => (
+-          <SessionCard
+-            session={item}
+-            onPress={() => router.push(`/history/${item.id}`)}
+-            onDelete={() => handleDelete(item)}
+-          />
+-        )}
+-        ItemSeparatorComponent={() => <View style={styles.separator} />}
+-      />
++      {!isEmpty && (
++        <ViewToggle mode={viewMode} onChange={setViewMode} />
++      )}
++
++      {isEmpty ? (
++        <EmptyHistory />
++      ) : viewMode === 'list' ? (
++        <FlatList
++          data={sessions}
++          keyExtractor={(item) => item.id}
++          contentContainerStyle={styles.listContent}
++          showsVerticalScrollIndicator={false}
++          renderItem={({ item }) => (
++            <SessionCard
++              session={item}
++              onPress={() => router.push(`/history/${item.id}`)}
++              onDelete={() => handleDelete(item)}
++            />
++          )}
++          ItemSeparatorComponent={() => <View style={styles.separator} />}
++        />
++      ) : (
++        <CalendarView
++          sessions={sessions}
++          selectedDate={selectedDate}
++          onSelectDate={setSelectedDate}
++          selectedDaySessions={selectedDaySessions}
++          onPressSession={(id) => router.push(`/history/${id}`)}
++          onDeleteSession={handleDelete}
++        />
++      )}
++    </View>
++  );
++}
++
++function ViewToggle({
++  mode,
++  onChange,
++}: {
++  mode: ViewMode;
++  onChange: (m: ViewMode) => void;
++}) {
++  return (
++    <View style={toggleStyles.container}>
++      <TouchableOpacity
++        style={[toggleStyles.option, mode === 'list' && toggleStyles.optionActive]}
++        onPress={() => onChange('list')}
++        activeOpacity={0.8}
++      >
++        <Ionicons
++          name="list"
++          size={16}
++          color={mode === 'list' ? COLORS.textPrimary : COLORS.textMuted}
++        />
++        <Text
++          style={[
++            toggleStyles.optionText,
++            mode === 'list' && toggleStyles.optionTextActive,
++          ]}
++        >
++          Liste
++        </Text>
++      </TouchableOpacity>
++      <TouchableOpacity
++        style={[toggleStyles.option, mode === 'calendar' && toggleStyles.optionActive]}
++        onPress={() => onChange('calendar')}
++        activeOpacity={0.8}
++      >
++        <Ionicons
++          name="calendar"
++          size={16}
++          color={mode === 'calendar' ? COLORS.textPrimary : COLORS.textMuted}
++        />
++        <Text
++          style={[
++            toggleStyles.optionText,
++            mode === 'calendar' && toggleStyles.optionTextActive,
++          ]}
++        >
++          Calendrier
++        </Text>
++      </TouchableOpacity>
+     </View>
+   );
+ }
+@@ -250,3 +473,130 @@ const emptyStyles = StyleSheet.create({
+     lineHeight: 22,
+   },
+ });
++
++const toggleStyles = StyleSheet.create({
++  container: {
++    flexDirection: 'row',
++    backgroundColor: COLORS.surface,
++    borderRadius: RADIUS.md,
++    padding: 4,
++    marginHorizontal: SPACING.base,
++    marginTop: SPACING.base,
++    borderWidth: 1,
++    borderColor: COLORS.cardBorder,
++  },
++  option: {
++    flex: 1,
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'center',
++    gap: SPACING.xs,
++    paddingVertical: SPACING.sm,
++    borderRadius: RADIUS.sm,
++  },
++  optionActive: {
++    backgroundColor: COLORS.primary,
++  },
++  optionText: {
++    fontSize: FONTS.sm,
++    fontWeight: FONTS.semibold,
++    color: COLORS.textMuted,
++  },
++  optionTextActive: {
++    color: COLORS.textPrimary,
++  },
++});
++
++const CELL_SIZE = '14.28%'; // 100% / 7 jours
++
++const calStyles = StyleSheet.create({
++  container: { flex: 1 },
++  scrollContent: { padding: SPACING.base, paddingBottom: SPACING.xxxl },
++
++  monthHeader: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'space-between',
++    marginBottom: SPACING.lg,
++  },
++  monthLabel: {
++    fontSize: FONTS.md,
++    fontWeight: FONTS.semibold,
++    color: COLORS.textPrimary,
++    textTransform: 'capitalize',
++  },
++
++  weekRow: {
++    flexDirection: 'row',
++    marginBottom: SPACING.sm,
++  },
++  weekLabel: {
++    width: CELL_SIZE,
++    textAlign: 'center',
++    fontSize: FONTS.xs,
++    color: COLORS.textMuted,
++    fontWeight: FONTS.medium,
++  },
++
++  grid: {
++    flexDirection: 'row',
++    flexWrap: 'wrap',
++  },
++  cell: {
++    width: CELL_SIZE,
++    aspectRatio: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  dayCircle: {
++    width: 32,
++    height: 32,
++    borderRadius: RADIUS.full,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  dayCircleToday: {
++    borderWidth: 1,
++    borderColor: COLORS.primary,
++  },
++  dayCircleSelected: {
++    backgroundColor: COLORS.primary,
++  },
++  dayText: {
++    fontSize: FONTS.sm,
++    color: COLORS.textPrimary,
++    fontWeight: FONTS.medium,
++  },
++  dayTextMuted: {
++    color: COLORS.textMuted,
++  },
++  dayTextSelected: {
++    color: COLORS.textPrimary,
++    fontWeight: FONTS.bold,
++  },
++  dot: {
++    width: 5,
++    height: 5,
++    borderRadius: RADIUS.full,
++    backgroundColor: COLORS.primary,
++    marginTop: 3,
++  },
++  dotSelected: {
++    backgroundColor: COLORS.warning,
++  },
++
++  dayDetail: {
++    marginTop: SPACING.xl,
++    gap: SPACING.md,
++  },
++  dayDetailTitle: {
++    fontSize: FONTS.sm,
++    fontWeight: FONTS.semibold,
++    color: COLORS.textSecondary,
++    textTransform: 'capitalize',
++  },
++  dayDetailEmpty: {
++    fontSize: FONTS.base,
++    color: COLORS.textMuted,
++  },
++});

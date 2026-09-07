@@ -1,0 +1,1322 @@
+diff --git a/app/(tabs)/history.tsx b/app/(tabs)/history.tsx
+index f7a02ad..c4dd0f5 100644
+--- a/app/(tabs)/history.tsx
++++ b/app/(tabs)/history.tsx
+@@ -2,14 +2,15 @@ import {
+   View,
+   Text,
+   FlatList,
++  ScrollView,
+   TouchableOpacity,
+   StyleSheet,
+   Alert,
+ } from 'react-native';
+-import { useState, useCallback, useEffect } from 'react';
++import { useState, useCallback, useMemo } from 'react';
+ import { router, useFocusEffect } from 'expo-router';
+ import { Ionicons } from '@expo/vector-icons';
+-import dayjs from 'dayjs';
++import dayjs, { Dayjs } from 'dayjs';
+ import 'dayjs/locale/fr';
+ import {
+   getAllSessions,
+@@ -22,9 +23,12 @@ import type { Session } from '../../types';
+ dayjs.locale('fr');
+ 
+ type SessionWithVolume = Session & { volume: number };
++type ViewMode = 'list' | 'calendar';
+ 
+ export default function HistoryScreen() {
+   const [sessions, setSessions] = useState<SessionWithVolume[]>([]);
++  const [viewMode, setViewMode] = useState<ViewMode>('list');
++  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+ 
+   const loadSessions = useCallback(() => {
+     const rawSessions = getAllSessions();
+@@ -56,30 +60,98 @@ export default function HistoryScreen() {
+     );
+   };
+ 
+-  if (sessions.length === 0) {
+-    return (
+-      <View style={styles.container}>
+-        <EmptyHistory />
+-      </View>
+-    );
+-  }
++  // Séances du jour sélectionné (vue calendrier)
++  const selectedDaySessions = useMemo(() => {
++    if (!selectedDate) return [];
++    return sessions.filter((s) => dayjs(s.date).isSame(selectedDate, 'day'));
++  }, [sessions, selectedDate]);
++
++  const isEmpty = sessions.length === 0;
+ 
+   return (
+     <View style={styles.container}>
+-      <FlatList
+-        data={sessions}
+-        keyExtractor={(item) => item.id}
+-        contentContainerStyle={styles.listContent}
+-        showsVerticalScrollIndicator={false}
+-        renderItem={({ item }) => (
+-          <SessionCard
+-            session={item}
+-            onPress={() => router.push(`/history/${item.id}`)}
+-            onDelete={() => handleDelete(item)}
+-          />
+-        )}
+-        ItemSeparatorComponent={() => <View style={styles.separator} />}
+-      />
++      {!isEmpty && (
++        <ViewToggle mode={viewMode} onChange={setViewMode} />
++      )}
++
++      {isEmpty ? (
++        <EmptyHistory />
++      ) : viewMode === 'list' ? (
++        <FlatList
++          data={sessions}
++          keyExtractor={(item) => item.id}
++          contentContainerStyle={styles.listContent}
++          showsVerticalScrollIndicator={false}
++          renderItem={({ item }) => (
++            <SessionCard
++              session={item}
++              onPress={() => router.push(`/history/${item.id}`)}
++              onDelete={() => handleDelete(item)}
++            />
++          )}
++          ItemSeparatorComponent={() => <View style={styles.separator} />}
++        />
++      ) : (
++        <CalendarView
++          sessions={sessions}
++          selectedDate={selectedDate}
++          onSelectDate={setSelectedDate}
++          selectedDaySessions={selectedDaySessions}
++          onPressSession={(id) => router.push(`/history/${id}`)}
++          onDeleteSession={handleDelete}
++        />
++      )}
++    </View>
++  );
++}
++
++function ViewToggle({
++  mode,
++  onChange,
++}: {
++  mode: ViewMode;
++  onChange: (m: ViewMode) => void;
++}) {
++  return (
++    <View style={toggleStyles.container}>
++      <TouchableOpacity
++        style={[toggleStyles.option, mode === 'list' && toggleStyles.optionActive]}
++        onPress={() => onChange('list')}
++        activeOpacity={0.8}
++      >
++        <Ionicons
++          name="list"
++          size={16}
++          color={mode === 'list' ? COLORS.textPrimary : COLORS.textMuted}
++        />
++        <Text
++          style={[
++            toggleStyles.optionText,
++            mode === 'list' && toggleStyles.optionTextActive,
++          ]}
++        >
++          Liste
++        </Text>
++      </TouchableOpacity>
++      <TouchableOpacity
++        style={[toggleStyles.option, mode === 'calendar' && toggleStyles.optionActive]}
++        onPress={() => onChange('calendar')}
++        activeOpacity={0.8}
++      >
++        <Ionicons
++          name="calendar"
++          size={16}
++          color={mode === 'calendar' ? COLORS.textPrimary : COLORS.textMuted}
++        />
++        <Text
++          style={[
++            toggleStyles.optionText,
++            mode === 'calendar' && toggleStyles.optionTextActive,
++          ]}
++        >
++          Calendrier
++        </Text>
++      </TouchableOpacity>
+     </View>
+   );
+ }
+@@ -140,6 +212,157 @@ function SessionCard({
+   );
+ }
+ 
++function CalendarView({
++  sessions,
++  selectedDate,
++  onSelectDate,
++  selectedDaySessions,
++  onPressSession,
++  onDeleteSession,
++}: {
++  sessions: SessionWithVolume[];
++  selectedDate: string | null;
++  onSelectDate: (date: string | null) => void;
++  selectedDaySessions: SessionWithVolume[];
++  onPressSession: (id: string) => void;
++  onDeleteSession: (session: Session) => void;
++}) {
++  const [visibleMonth, setVisibleMonth] = useState<Dayjs>(dayjs().startOf('month'));
++
++  // Regroupe les séances par jour (clé "YYYY-MM-DD") pour un lookup rapide
++  const sessionsByDay = useMemo(() => {
++    const map = new Map<string, SessionWithVolume[]>();
++    for (const s of sessions) {
++      const key = dayjs(s.date).format('YYYY-MM-DD');
++      const arr = map.get(key) ?? [];
++      arr.push(s);
++      map.set(key, arr);
++    }
++    return map;
++  }, [sessions]);
++
++  // Construit la grille du mois (lundi en premier), avec padding avant/après
++  const gridDays = useMemo(() => {
++    const startOfMonth = visibleMonth.startOf('month');
++    const endOfMonth = visibleMonth.endOf('month');
++    // isoWeekday: lundi = 1 ... dimanche = 7
++    const leadingBlanks = (startOfMonth.day() + 6) % 7; // day(): dimanche=0
++    const days: (Dayjs | null)[] = [];
++    for (let i = 0; i < leadingBlanks; i++) days.push(null);
++    for (let d = 0; d < endOfMonth.date(); d++) {
++      days.push(startOfMonth.add(d, 'day'));
++    }
++    while (days.length % 7 !== 0) days.push(null);
++    return days;
++  }, [visibleMonth]);
++
++  const today = dayjs();
++
++  const goToPrevMonth = () => setVisibleMonth((m) => m.subtract(1, 'month'));
++  const goToNextMonth = () => setVisibleMonth((m) => m.add(1, 'month'));
++
++  return (
++    <ScrollView
++      style={calStyles.container}
++      contentContainerStyle={calStyles.scrollContent}
++      showsVerticalScrollIndicator={false}
++    >
++      {/* Navigation du mois */}
++      <View style={calStyles.monthHeader}>
++        <TouchableOpacity onPress={goToPrevMonth} hitSlop={10}>
++          <Ionicons name="chevron-back" size={22} color={COLORS.textSecondary} />
++        </TouchableOpacity>
++        <Text style={calStyles.monthLabel}>
++          {visibleMonth.format('MMMM YYYY')}
++        </Text>
++        <TouchableOpacity onPress={goToNextMonth} hitSlop={10}>
++          <Ionicons name="chevron-forward" size={22} color={COLORS.textSecondary} />
++        </TouchableOpacity>
++      </View>
++
++      {/* En-têtes des jours de la semaine */}
++      <View style={calStyles.weekRow}>
++        {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => (
++          <Text key={i} style={calStyles.weekLabel}>{d}</Text>
++        ))}
++      </View>
++
++      {/* Grille des jours */}
++      <View style={calStyles.grid}>
++        {gridDays.map((day, i) => {
++          if (!day) {
++            return <View key={i} style={calStyles.cell} />;
++          }
++          const key = day.format('YYYY-MM-DD');
++          const daySessions = sessionsByDay.get(key) ?? [];
++          const hasSessions = daySessions.length > 0;
++          const isToday = day.isSame(today, 'day');
++          const isSelected = selectedDate === key;
++
++          return (
++            <TouchableOpacity
++              key={i}
++              style={calStyles.cell}
++              activeOpacity={0.7}
++              disabled={!hasSessions}
++              onPress={() => onSelectDate(isSelected ? null : key)}
++            >
++              <View
++                style={[
++                  calStyles.dayCircle,
++                  isToday && calStyles.dayCircleToday,
++                  isSelected && calStyles.dayCircleSelected,
++                ]}
++              >
++                <Text
++                  style={[
++                    calStyles.dayText,
++                    !hasSessions && calStyles.dayTextMuted,
++                    isSelected && calStyles.dayTextSelected,
++                  ]}
++                >
++                  {day.date()}
++                </Text>
++              </View>
++              {hasSessions && (
++                <View
++                  style={[
++                    calStyles.dot,
++                    isSelected && calStyles.dotSelected,
++                  ]}
++                />
++              )}
++            </TouchableOpacity>
++          );
++        })}
++      </View>
++
++      {/* Séances du jour sélectionné */}
++      {selectedDate && (
++        <View style={calStyles.dayDetail}>
++          <Text style={calStyles.dayDetailTitle}>
++            {dayjs(selectedDate).format('dddd D MMMM')}
++          </Text>
++          {selectedDaySessions.length === 0 ? (
++            <Text style={calStyles.dayDetailEmpty}>Aucune séance ce jour</Text>
++          ) : (
++            <View style={{ gap: SPACING.sm }}>
++              {selectedDaySessions.map((s) => (
++                <SessionCard
++                  key={s.id}
++                  session={s}
++                  onPress={() => onPressSession(s.id)}
++                  onDelete={() => onDeleteSession(s)}
++                />
++              ))}
++            </View>
++          )}
++        </View>
++      )}
++    </ScrollView>
++  );
++}
++
+ function EmptyHistory() {
+   return (
+     <View style={emptyStyles.container}>
+@@ -250,3 +473,130 @@ const emptyStyles = StyleSheet.create({
+     lineHeight: 22,
+   },
+ });
++
++const toggleStyles = StyleSheet.create({
++  container: {
++    flexDirection: 'row',
++    backgroundColor: COLORS.surface,
++    borderRadius: RADIUS.md,
++    padding: 4,
++    marginHorizontal: SPACING.base,
++    marginTop: SPACING.base,
++    borderWidth: 1,
++    borderColor: COLORS.cardBorder,
++  },
++  option: {
++    flex: 1,
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'center',
++    gap: SPACING.xs,
++    paddingVertical: SPACING.sm,
++    borderRadius: RADIUS.sm,
++  },
++  optionActive: {
++    backgroundColor: COLORS.primary,
++  },
++  optionText: {
++    fontSize: FONTS.sm,
++    fontWeight: FONTS.semibold,
++    color: COLORS.textMuted,
++  },
++  optionTextActive: {
++    color: COLORS.textPrimary,
++  },
++});
++
++const CELL_SIZE = '14.28%'; // 100% / 7 jours
++
++const calStyles = StyleSheet.create({
++  container: { flex: 1 },
++  scrollContent: { padding: SPACING.base, paddingBottom: SPACING.xxxl },
++
++  monthHeader: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'space-between',
++    marginBottom: SPACING.lg,
++  },
++  monthLabel: {
++    fontSize: FONTS.md,
++    fontWeight: FONTS.semibold,
++    color: COLORS.textPrimary,
++    textTransform: 'capitalize',
++  },
++
++  weekRow: {
++    flexDirection: 'row',
++    marginBottom: SPACING.sm,
++  },
++  weekLabel: {
++    width: CELL_SIZE,
++    textAlign: 'center',
++    fontSize: FONTS.xs,
++    color: COLORS.textMuted,
++    fontWeight: FONTS.medium,
++  },
++
++  grid: {
++    flexDirection: 'row',
++    flexWrap: 'wrap',
++  },
++  cell: {
++    width: CELL_SIZE,
++    aspectRatio: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  dayCircle: {
++    width: 32,
++    height: 32,
++    borderRadius: RADIUS.full,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  dayCircleToday: {
++    borderWidth: 1,
++    borderColor: COLORS.primary,
++  },
++  dayCircleSelected: {
++    backgroundColor: COLORS.primary,
++  },
++  dayText: {
++    fontSize: FONTS.sm,
++    color: COLORS.textPrimary,
++    fontWeight: FONTS.medium,
++  },
++  dayTextMuted: {
++    color: COLORS.textMuted,
++  },
++  dayTextSelected: {
++    color: COLORS.textPrimary,
++    fontWeight: FONTS.bold,
++  },
++  dot: {
++    width: 5,
++    height: 5,
++    borderRadius: RADIUS.full,
++    backgroundColor: COLORS.primary,
++    marginTop: 3,
++  },
++  dotSelected: {
++    backgroundColor: COLORS.warning,
++  },
++
++  dayDetail: {
++    marginTop: SPACING.xl,
++    gap: SPACING.md,
++  },
++  dayDetailTitle: {
++    fontSize: FONTS.sm,
++    fontWeight: FONTS.semibold,
++    color: COLORS.textSecondary,
++    textTransform: 'capitalize',
++  },
++  dayDetailEmpty: {
++    fontSize: FONTS.base,
++    color: COLORS.textMuted,
++  },
++});
+diff --git a/app/(tabs)/index.tsx b/app/(tabs)/index.tsx
+index 742ed42..e37b414 100644
+--- a/app/(tabs)/index.tsx
++++ b/app/(tabs)/index.tsx
+@@ -6,12 +6,14 @@ import {
+   StyleSheet,
+   RefreshControl,
+   Alert,
++  Dimensions,
+ } from 'react-native';
+ import { useCallback, useState, useEffect } from 'react';
+ import { router } from 'expo-router';
+ import { Ionicons } from '@expo/vector-icons';
+ import dayjs from 'dayjs';
+ import 'dayjs/locale/fr';
++import { BarChart } from 'react-native-gifted-charts';
+ import {
+   getLastSession,
+   getDashboardStats,
+@@ -23,6 +25,17 @@ import type { Session, DashboardStats } from '../../types';
+ 
+ dayjs.locale('fr');
+ 
++const BAR_COLORS = [
++  COLORS.primary,
++  COLORS.success,
++  COLORS.warning,
++  COLORS.danger,
++  COLORS.primaryLight,
++  '#8B5CF6',
++  '#22D3EE',
++  '#F472B6',
++];
++
+ export default function DashboardScreen() {
+   const [refreshing, setRefreshing] = useState(false);
+   const [lastSession, setLastSession] = useState<Session | null>(null);
+@@ -31,6 +44,7 @@ export default function DashboardScreen() {
+     monthlySessionCount: 0,
+     totalSessionCount: 0,
+     personalRecords: [],
++    volumeByCategory: [],
+   });
+   const [lastSessionVolume, setLastSessionVolume] = useState(0);
+ 
+@@ -166,6 +180,37 @@ export default function DashboardScreen() {
+           <EmptyState />
+         )}
+ 
++        {/* Volume par groupe musculaire */}
++        {stats.volumeByCategory.length > 0 && (
++          <>
++            <Text style={styles.sectionTitle}>Volume par muscle (30j)</Text>
++            <View style={styles.chartCard}>
++              <BarChart
++                data={stats.volumeByCategory.map((c, i) => ({
++                  value: c.volume,
++                  label: c.category,
++                  frontColor: BAR_COLORS[i % BAR_COLORS.length],
++                }))}
++                width={Dimensions.get('window').width - SPACING.base * 2 - SPACING.base * 2 - 20}
++                height={180}
++                barWidth={24}
++                spacing={22}
++                roundedTop
++                roundedBottom
++                yAxisTextStyle={{ color: COLORS.textMuted, fontSize: FONTS.xs }}
++                xAxisLabelTextStyle={{ color: COLORS.textMuted, fontSize: FONTS.xs }}
++                yAxisColor={COLORS.cardBorder}
++                xAxisColor={COLORS.cardBorder}
++                rulesColor={COLORS.cardBorder}
++                rulesType="solid"
++                noOfSections={4}
++                yAxisLabelSuffix=" kg"
++                hideRules={false}
++              />
++            </View>
++          </>
++        )}
++
+         {/* Records personnels */}
+         {stats.personalRecords.length > 0 && (
+           <>
+@@ -323,6 +368,18 @@ const styles = StyleSheet.create({
+     marginBottom: SPACING.xl,
+   },
+ 
++  chartCard: {
++    backgroundColor: COLORS.card,
++    borderRadius: RADIUS.lg,
++    paddingVertical: SPACING.lg,
++    paddingHorizontal: SPACING.base,
++    borderWidth: 1,
++    borderColor: COLORS.cardBorder,
++    marginBottom: SPACING.xl,
++    overflow: 'hidden',
++    ...SHADOWS.card,
++  },
++
+   lastSessionCard: {
+     backgroundColor: COLORS.card,
+     borderRadius: RADIUS.lg,
+diff --git a/app/(tabs)/settings.tsx b/app/(tabs)/settings.tsx
+index aa03efa..c8bfa52 100644
+--- a/app/(tabs)/settings.tsx
++++ b/app/(tabs)/settings.tsx
+@@ -10,6 +10,7 @@ import {
+ import { useState } from 'react';
+ import { router } from 'expo-router';
+ import { Ionicons } from '@expo/vector-icons';
++import { resetAllData } from '../../lib/database';
+ import { COLORS, FONTS, SPACING, RADIUS } from '../../constants/theme';
+ 
+ export default function SettingsScreen() {
+@@ -26,15 +27,34 @@ export default function SettingsScreen() {
+   const handleReset = () => {
+     Alert.alert(
+       'Réinitialiser les données',
+-      'Toutes tes séances seront supprimées définitivement. Es-tu sûr ?',
++      'Toutes tes séances, exercices et séries seront supprimés définitivement. Cette action est irréversible.',
+       [
+         { text: 'Annuler', style: 'cancel' },
+         {
+           text: 'Supprimer tout',
+           style: 'destructive',
+           onPress: () => {
+-            // Sprint V2 : réinitialisation BDD
+-            Alert.alert('Info', 'Fonctionnalité à venir.');
++            // Double confirmation car l'action est irréversible et détruit
++            // l'intégralité de l'historique de l'utilisateur.
++            Alert.alert(
++              'Es-tu vraiment sûr ?',
++              'Il n\'y a pas de retour en arrière possible après cette action.',
++              [
++                { text: 'Annuler', style: 'cancel' },
++                {
++                  text: 'Oui, tout supprimer',
++                  style: 'destructive',
++                  onPress: () => {
++                    resetAllData();
++                    Alert.alert(
++                      'Données supprimées',
++                      'Toutes tes données ont été effacées.',
++                      [{ text: 'OK', onPress: () => router.replace('/(tabs)' as any) }]
++                    );
++                  },
++                },
++              ]
++            );
+           },
+         },
+       ]
+diff --git a/app/exercises/[name].tsx b/app/exercises/[name].tsx
+index 425e981..8d85cea 100644
+--- a/app/exercises/[name].tsx
++++ b/app/exercises/[name].tsx
+@@ -4,11 +4,13 @@ import {
+   ScrollView,
+   StyleSheet,
+   ActivityIndicator,
++  Dimensions,
+ } from 'react-native';
+ import { useLocalSearchParams } from 'expo-router';
+ import { useEffect, useState } from 'react';
+ import { Ionicons } from '@expo/vector-icons';
+ import dayjs from 'dayjs';
++import { LineChart } from 'react-native-gifted-charts';
+ import { getExerciseStats } from '../../lib/queries';
+ import { COLORS, FONTS, SPACING, RADIUS } from '../../constants/theme';
+ import type { ExerciseStats } from '../../types';
+@@ -73,19 +75,112 @@ export default function ExerciseDetailScreen() {
+           iconColor={stats.progressionPercent >= 0 ? COLORS.success : COLORS.danger}
+         />
+       </View>
++      <View style={styles.statsRow}>
++        <StatCard
++          label="1RM estimé"
++          value={stats.estimatedOneRM > 0 ? `${stats.estimatedOneRM} kg` : '—'}
++          icon="calculator"
++          iconColor={COLORS.primaryLight}
++        />
++      </View>
++
++      {/* Bannière plateau / progression */}
++      {stats.plateau.status !== 'insufficient_data' && (
++        <View
++          style={[
++            styles.plateauBanner,
++            stats.plateau.status === 'progressing' && styles.plateauBannerSuccess,
++            stats.plateau.status === 'plateau' && styles.plateauBannerWarning,
++            stats.plateau.status === 'declining' && styles.plateauBannerDanger,
++          ]}
++        >
++          <Ionicons
++            name={
++              stats.plateau.status === 'progressing'
++                ? 'trending-up'
++                : stats.plateau.status === 'declining'
++                ? 'trending-down'
++                : 'pause-circle'
++            }
++            size={20}
++            color={
++              stats.plateau.status === 'progressing'
++                ? COLORS.success
++                : stats.plateau.status === 'declining'
++                ? COLORS.danger
++                : COLORS.warning
++            }
++          />
++          <Text style={styles.plateauText}>{stats.plateau.message}</Text>
++        </View>
++      )}
+ 
+-      {/* Graphique — Sprint 4 */}
++      {/* Graphique d'évolution du poids */}
+       <Text style={styles.sectionTitle}>Évolution du poids</Text>
+       {hasHistory ? (
+-        <View style={styles.chartPlaceholder}>
+-          {/* Les graphiques seront ajoutés au Sprint 4 */}
+-          <Ionicons name="bar-chart" size={40} color={COLORS.primary} />
+-          <Text style={styles.chartPlaceholderText}>
+-            Graphique disponible au Sprint 4
+-          </Text>
+-          <Text style={styles.chartSubtext}>
+-            {stats.weightHistory.length} point(s) de données
+-          </Text>
++        <View style={styles.chartCard}>
++          {stats.weightHistory.length > 1 ? (
++            <LineChart
++              data={stats.weightHistory.map((p) => ({
++                value: p.value,
++                label: p.label,
++              }))}
++              width={Dimensions.get('window').width - SPACING.base * 2 - SPACING.base * 2 - 20}
++              height={180}
++              spacing={Math.max(
++                36,
++                (Dimensions.get('window').width - SPACING.base * 4 - 40) /
++                  Math.max(stats.weightHistory.length - 1, 1)
++              )}
++              initialSpacing={16}
++              endSpacing={16}
++              color={COLORS.primary}
++              thickness={2.5}
++              startFillColor={COLORS.primary}
++              endFillColor={COLORS.background}
++              startOpacity={0.35}
++              endOpacity={0.02}
++              areaChart
++              curved
++              dataPointsColor={COLORS.primary}
++              dataPointsRadius={4}
++              yAxisTextStyle={{ color: COLORS.textMuted, fontSize: FONTS.xs }}
++              xAxisLabelTextStyle={{ color: COLORS.textMuted, fontSize: FONTS.xs }}
++              yAxisColor={COLORS.cardBorder}
++              xAxisColor={COLORS.cardBorder}
++              rulesColor={COLORS.cardBorder}
++              rulesType="solid"
++              noOfSections={4}
++              yAxisLabelSuffix=" kg"
++              hideDataPoints={false}
++              showVerticalLines={false}
++              pointerConfig={{
++                pointerStripHeight: 160,
++                pointerStripColor: COLORS.primary,
++                pointerStripUptoDataPoint: true,
++                pointerColor: COLORS.primary,
++                radius: 5,
++                pointerLabelWidth: 80,
++                pointerLabelHeight: 40,
++                activatePointersOnLongPress: true,
++                autoAdjustPointerLabelPosition: true,
++                pointerLabelComponent: (items: any) => (
++                  <View style={styles.tooltip}>
++                    <Text style={styles.tooltipText}>
++                      {items[0]?.value} kg
++                    </Text>
++                  </View>
++                ),
++              }}
++            />
++          ) : (
++            <View style={styles.singlePoint}>
++              <Ionicons name="analytics" size={32} color={COLORS.primary} />
++              <Text style={styles.chartSubtext}>
++                Encore une séance pour voir la courbe
++              </Text>
++            </View>
++          )}
+         </View>
+       ) : (
+         <View style={styles.noData}>
+@@ -170,6 +265,34 @@ const styles = StyleSheet.create({
+     marginBottom: SPACING.md,
+   },
+ 
++  plateauBanner: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: SPACING.sm,
++    padding: SPACING.base,
++    borderRadius: RADIUS.lg,
++    borderWidth: 1,
++    marginBottom: SPACING.md,
++  },
++  plateauBannerSuccess: {
++    backgroundColor: COLORS.successGlow,
++    borderColor: `${COLORS.success}40`,
++  },
++  plateauBannerWarning: {
++    backgroundColor: COLORS.warningGlow,
++    borderColor: `${COLORS.warning}40`,
++  },
++  plateauBannerDanger: {
++    backgroundColor: COLORS.dangerGlow,
++    borderColor: `${COLORS.danger}40`,
++  },
++  plateauText: {
++    flex: 1,
++    fontSize: FONTS.sm,
++    color: COLORS.textPrimary,
++    lineHeight: 19,
++  },
++
+   sectionTitle: {
+     fontSize: FONTS.xs,
+     fontWeight: FONTS.semibold,
+@@ -180,25 +303,35 @@ const styles = StyleSheet.create({
+     marginTop: SPACING.lg,
+   },
+ 
+-  chartPlaceholder: {
++  chartCard: {
+     backgroundColor: COLORS.card,
+     borderRadius: RADIUS.lg,
+-    padding: SPACING.xl,
+-    alignItems: 'center',
+-    gap: SPACING.sm,
++    paddingVertical: SPACING.lg,
++    paddingHorizontal: SPACING.base,
+     borderWidth: 1,
+     borderColor: COLORS.cardBorder,
+-    borderStyle: 'dashed',
++    overflow: 'hidden',
+   },
+-  chartPlaceholderText: {
+-    fontSize: FONTS.base,
+-    color: COLORS.textSecondary,
+-    fontWeight: FONTS.medium,
++  singlePoint: {
++    alignItems: 'center',
++    gap: SPACING.sm,
++    paddingVertical: SPACING.xl,
+   },
+   chartSubtext: {
+     fontSize: FONTS.sm,
+     color: COLORS.textMuted,
+   },
++  tooltip: {
++    backgroundColor: COLORS.primary,
++    borderRadius: RADIUS.sm,
++    paddingVertical: 4,
++    paddingHorizontal: 8,
++  },
++  tooltipText: {
++    color: COLORS.textPrimary,
++    fontSize: FONTS.xs,
++    fontWeight: FONTS.bold,
++  },
+ 
+   noData: {
+     backgroundColor: COLORS.card,
+diff --git a/app/history/[id].tsx b/app/history/[id].tsx
+index 7882cac..67d8345 100644
+--- a/app/history/[id].tsx
++++ b/app/history/[id].tsx
+@@ -103,6 +103,7 @@ export default function SessionDetailScreen() {
+               <Text style={styles.colHeader}>Poids</Text>
+               <Text style={styles.colHeader}>Reps</Text>
+               <Text style={styles.colHeader}>Volume</Text>
++              <Text style={styles.colHeaderRpe}>RPE</Text>
+             </View>
+             {exercise.sets.map((set) => (
+               <View key={set.id} style={styles.setRow}>
+@@ -112,6 +113,7 @@ export default function SessionDetailScreen() {
+                 <Text style={styles.setVol}>
+                   {Math.round(set.weight * set.reps)} kg
+                 </Text>
++                <Text style={styles.setRpe}>{set.rpe != null ? set.rpe : '—'}</Text>
+               </View>
+             ))}
+           </View>
+@@ -209,6 +211,14 @@ const styles = StyleSheet.create({
+     textTransform: 'uppercase',
+     textAlign: 'center',
+   },
++  colHeaderRpe: {
++    width: 36,
++    fontSize: FONTS.xs,
++    fontWeight: FONTS.semibold,
++    color: COLORS.textMuted,
++    textTransform: 'uppercase',
++    textAlign: 'center',
++  },
+   setRow: {
+     flexDirection: 'row',
+     paddingVertical: SPACING.sm,
+@@ -235,6 +245,13 @@ const styles = StyleSheet.create({
+     fontSize: FONTS.sm,
+     color: COLORS.textSecondary,
+   },
++  setRpe: {
++    width: 36,
++    textAlign: 'center',
++    fontSize: FONTS.sm,
++    fontWeight: FONTS.semibold,
++    color: COLORS.warning,
++  },
+ 
+   deleteButton: {
+     flexDirection: 'row',
+diff --git a/app/session/[id].tsx b/app/session/[id].tsx
+index 56d0ebd..645bd0e 100644
+--- a/app/session/[id].tsx
++++ b/app/session/[id].tsx
+@@ -77,7 +77,7 @@ export default function SessionScreen() {
+ 
+   const handleAddSet = (exerciseId: string) => {
+     const last = getLastSetForExercise(exerciseId);
+-    addSet(exerciseId, last?.weight ?? 0, last?.reps ?? 0);
++    addSet(exerciseId, last?.weight ?? 0, last?.reps ?? 0, null);
+     loadSession();
+   };
+ 
+@@ -282,7 +282,8 @@ function ExerciseCard({
+       <View style={cardStyles.columnsHeader}>
+         <Text style={cardStyles.colLabel}>Série</Text>
+         <Text style={cardStyles.colLabel}>Poids (kg)</Text>
+-        <Text style={cardStyles.colLabel}>Répétitions</Text>
++        <Text style={cardStyles.colLabel}>Reps</Text>
++        <Text style={cardStyles.colLabelRpe}>RPE</Text>
+         <View style={{ width: 32 }} />
+       </View>
+ 
+@@ -318,12 +319,15 @@ function SetRow({ set, onDelete, onReload }: {
+ }) {
+   const [weight, setWeight] = useState(set.weight > 0 ? set.weight.toString() : '');
+   const [reps, setReps] = useState(set.reps > 0 ? set.reps.toString() : '');
++  const [rpe, setRpe] = useState(set.rpe != null ? set.rpe.toString() : '');
+ 
+   const handleBlur = () => {
+     const w = parseFloat(weight) || 0;
+     const r = parseInt(reps) || 0;
+-    if (w !== set.weight || r !== set.reps) {
+-      updateSet(set.id, w, r);
++    const rawRpe = parseFloat(rpe);
++    const clampedRpe = isNaN(rawRpe) ? null : Math.min(10, Math.max(1, rawRpe));
++    if (w !== set.weight || r !== set.reps || clampedRpe !== set.rpe) {
++      updateSet(set.id, w, r, clampedRpe);
+       onReload();
+     }
+   };
+@@ -353,6 +357,17 @@ function SetRow({ set, onDelete, onReload }: {
+         placeholder="0"
+         placeholderTextColor={COLORS.textMuted}
+       />
++      <TextInput
++        style={setRowStyles.rpeInput}
++        value={rpe}
++        onChangeText={setRpe}
++        onBlur={handleBlur}
++        keyboardType="number-pad"
++        selectTextOnFocus
++        placeholder="—"
++        placeholderTextColor={COLORS.textMuted}
++        maxLength={2}
++      />
+       <TouchableOpacity onPress={onDelete} style={setRowStyles.deleteButton}>
+         <Ionicons name="close-circle" size={22} color={COLORS.textMuted} />
+       </TouchableOpacity>
+@@ -416,6 +431,11 @@ const cardStyles = StyleSheet.create({
+     flex: 1, fontSize: FONTS.xs, color: COLORS.textMuted,
+     textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: FONTS.medium,
+   },
++  colLabelRpe: {
++    width: 44, fontSize: FONTS.xs, color: COLORS.textMuted,
++    textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: FONTS.medium,
++    textAlign: 'center',
++  },
+   noSets: {
+     fontSize: FONTS.sm, color: COLORS.textMuted, textAlign: 'center',
+     paddingVertical: SPACING.md, fontStyle: 'italic',
+@@ -444,6 +464,12 @@ const setRowStyles = StyleSheet.create({
+     color: COLORS.textPrimary, textAlign: 'center',
+     borderWidth: 1, borderColor: COLORS.cardBorder,
+   },
++  rpeInput: {
++    width: 44, height: 40, backgroundColor: COLORS.surface, borderRadius: RADIUS.sm,
++    fontSize: FONTS.md, fontWeight: FONTS.semibold,
++    color: COLORS.warning, textAlign: 'center',
++    borderWidth: 1, borderColor: COLORS.cardBorder,
++  },
+   deleteButton: { width: 32, alignItems: 'center' },
+ });
+ 
+diff --git a/constants/exercises.ts b/constants/exercises.ts
+index 5f2ce2b..b63d334 100644
+--- a/constants/exercises.ts
++++ b/constants/exercises.ts
+@@ -121,3 +121,16 @@ export function searchExercises(query: string): ExerciseEntry[] {
+ export function getByCategory(category: string): ExerciseEntry[] {
+   return PREDEFINED_EXERCISES.filter((e) => e.category === category);
+ }
++
++/**
++ * Retourne la catégorie (groupe musculaire) d'un exercice à partir de son nom.
++ * Fonctionne aussi pour les exercices personnalisés ajoutés par l'utilisateur
++ * en cherchant une correspondance insensible à la casse/accents ; sinon 'Autre'.
++ */
++export function getCategoryForExercise(name: string): string {
++  const normalize = (s: string) =>
++    s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
++  const target = normalize(name);
++  const found = PREDEFINED_EXERCISES.find((e) => normalize(e.name) === target);
++  return found?.category ?? 'Autre';
++}
+diff --git a/lib/database.ts b/lib/database.ts
+index ab92e3b..63249fd 100644
+--- a/lib/database.ts
++++ b/lib/database.ts
+@@ -56,6 +56,10 @@ function _initDatabase(db: SQLite.SQLiteDatabase): void {
+     );
+   `);
+ 
++  // Migration : ajoute la colonne RPE (Rate of Perceived Exertion, 1-10)
++  // si elle n'existe pas déjà sur une base créée avant son introduction.
++  _addColumnIfMissing(db, 'sets', 'rpe', 'REAL');
++
+   // Table de l'autocomplete pour les noms d'exercices
+   db.execSync(`
+     CREATE TABLE IF NOT EXISTS exercise_names (
+@@ -84,6 +88,40 @@ function _initDatabase(db: SQLite.SQLiteDatabase): void {
+ // Utilitaires
+ // ============================================================
+ 
++/**
++ * Ajoute une colonne à une table existante si elle n'existe pas déjà.
++ * SQLite n'a pas de "ADD COLUMN IF NOT EXISTS", on vérifie donc via
++ * PRAGMA table_info avant de tenter l'ALTER TABLE.
++ */
++function _addColumnIfMissing(
++  db: SQLite.SQLiteDatabase,
++  table: string,
++  column: string,
++  type: string
++): void {
++  const columns = db.getAllSync<{ name: string }>(`PRAGMA table_info(${table});`);
++  const exists = columns.some((c) => c.name === column);
++  if (!exists) {
++    db.execSync(`ALTER TABLE ${table} ADD COLUMN ${column} ${type};`);
++  }
++}
++
++/**
++ * Supprime définitivement toutes les données de l'application :
++ * séances, exercices, séries et historique d'autocomplete.
++ * Utilisé par le bouton "Réinitialiser toutes les données".
++ */
++export function resetAllData(): void {
++  const db = getDb();
++  // La suppression des séances cascade sur exercises et sets (ON DELETE CASCADE),
++  // mais on nettoie explicitement chaque table pour ne rien laisser derrière,
++  // y compris l'historique d'autocomplete qui n'est pas lié par clé étrangère.
++  db.execSync('DELETE FROM sets;');
++  db.execSync('DELETE FROM exercises;');
++  db.execSync('DELETE FROM sessions;');
++  db.execSync('DELETE FROM exercise_names;');
++}
++
+ /** Génère un identifiant unique (UUID v4) */
+ export function generateId(): string {
+   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+diff --git a/lib/queries.ts b/lib/queries.ts
+index 66d819c..6e51bb9 100644
+--- a/lib/queries.ts
++++ b/lib/queries.ts
+@@ -1,5 +1,6 @@
+ import dayjs from 'dayjs';
+ import { getDb, generateId, nowISO } from './database';
++import { getCategoryForExercise } from '../constants/exercises';
+ import type {
+   Session,
+   Exercise,
+@@ -9,6 +10,8 @@ import type {
+   ChartPoint,
+   ExerciseStats,
+   DashboardStats,
++  CategoryVolume,
++  PlateauStatus,
+ } from '../types';
+ 
+ // ============================================================
+@@ -159,6 +162,7 @@ export function addSet(
+   exerciseId: string,
+   weight: number,
+   reps: number,
++  rpe?: number | null,
+   notes?: string
+ ): Set {
+   const db = getDb();
+@@ -175,12 +179,13 @@ export function addSet(
+     set_number: setNumber,
+     weight,
+     reps,
++    rpe: rpe ?? null,
+     notes: notes ?? null,
+   };
+ 
+   db.runSync(
+-    'INSERT INTO sets (id, exercise_id, set_number, weight, reps, notes) VALUES (?, ?, ?, ?, ?, ?)',
+-    [set.id, set.exercise_id, set.set_number, set.weight, set.reps, set.notes]
++    'INSERT INTO sets (id, exercise_id, set_number, weight, reps, rpe, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
++    [set.id, set.exercise_id, set.set_number, set.weight, set.reps, set.rpe, set.notes]
+   );
+ 
+   return set;
+@@ -190,12 +195,13 @@ export function addSet(
+ export function updateSet(
+   setId: string,
+   weight: number,
+-  reps: number
++  reps: number,
++  rpe?: number | null
+ ): void {
+   const db = getDb();
+   db.runSync(
+-    'UPDATE sets SET weight = ?, reps = ? WHERE id = ?',
+-    [weight, reps, setId]
++    'UPDATE sets SET weight = ?, reps = ?, rpe = ? WHERE id = ?',
++    [weight, reps, rpe ?? null, setId]
+   );
+ }
+ 
+@@ -290,9 +296,113 @@ export function getWeightHistory(exerciseName: string): ChartPoint[] {
+   }));
+ }
+ 
++/**
++ * Estime la charge maximale sur une répétition (1RM) à partir d'une série
++ * réalisée, avec la formule d'Epley : 1RM = poids × (1 + reps / 30).
++ * Fiable jusqu'à environ 10-12 répétitions.
++ */
++export function estimateOneRM(weight: number, reps: number): number {
++  if (weight <= 0 || reps <= 0) return 0;
++  if (reps === 1) return weight;
++  return weight * (1 + reps / 30);
++}
++
++/**
++ * Historique du 1RM estimé par séance pour un exercice donné : pour chaque
++ * séance, on retient la série qui donne le meilleur 1RM estimé (pas
++ * forcément la plus lourde — une série à réps élevées peut donner un 1RM
++ * estimé supérieur à une série lourde à faible répétitions).
++ */
++export function getOneRMHistory(exerciseName: string): ChartPoint[] {
++  const db = getDb();
++  const rows = db.getAllSync<{ date: string; weight: number; reps: number }>(
++    `SELECT sess.date, s.weight, s.reps
++     FROM sets s
++     JOIN exercises e ON s.exercise_id = e.id
++     JOIN sessions sess ON e.session_id = sess.id
++     WHERE e.name = ?
++     ORDER BY sess.date ASC`,
++    [exerciseName]
++  );
++
++  // Regroupe par séance et garde le meilleur 1RM estimé de chaque séance
++  const bySession = new Map<string, number>();
++  for (const r of rows) {
++    const oneRM = estimateOneRM(r.weight, r.reps);
++    const key = r.date; // même date que la séance (jointe via sess.date)
++    const current = bySession.get(key) ?? 0;
++    if (oneRM > current) bySession.set(key, oneRM);
++  }
++
++  return Array.from(bySession.entries()).map(([date, value]) => ({
++    date,
++    value: Math.round(value * 10) / 10,
++    label: dayjs(date).format('DD/MM'),
++  }));
++}
++
++/**
++ * Analyse une série de valeurs (poids ou 1RM par séance) et détecte un
++ * plateau ou une régression : pas de nouveau record depuis plusieurs
++ * séances, ce qui peut suggérer une semaine de décharge ou un changement
++ * de stimulus (reps, tempo, exercice).
++ */
++export function detectPlateau(history: ChartPoint[]): {
++  status: PlateauStatus;
++  sessionsSinceProgress: number;
++  message: string;
++} {
++  const PLATEAU_THRESHOLD = 4; // séances sans record avant d'alerter
++
++  if (history.length < 3) {
++    return {
++      status: 'insufficient_data',
++      sessionsSinceProgress: 0,
++      message: 'Pas encore assez de séances pour analyser ta progression.',
++    };
++  }
++
++  // Trouve l'index du meilleur score (record) et sa valeur
++  let bestIndex = 0;
++  let bestValue = history[0].value;
++  for (let i = 1; i < history.length; i++) {
++    if (history[i].value >= bestValue) {
++      bestValue = history[i].value;
++      bestIndex = i;
++    }
++  }
++
++  const sessionsSinceProgress = history.length - 1 - bestIndex;
++  const lastValue = history[history.length - 1].value;
++
++  if (sessionsSinceProgress < PLATEAU_THRESHOLD) {
++    return {
++      status: 'progressing',
++      sessionsSinceProgress,
++      message: 'Tu progresses bien, continue comme ça 💪',
++    };
++  }
++
++  // Régression nette : la dernière valeur est sous 97% du record
++  if (lastValue < bestValue * 0.97) {
++    return {
++      status: 'declining',
++      sessionsSinceProgress,
++      message: `Ta charge a baissé depuis ${sessionsSinceProgress} séances. Pense à la récupération (sommeil, stress) ou à une semaine de décharge.`,
++    };
++  }
++
++  return {
++    status: 'plateau',
++    sessionsSinceProgress,
++    message: `Aucun nouveau record depuis ${sessionsSinceProgress} séances. Essaie une décharge, varie les répétitions ou change de variante d'exercice.`,
++  };
++}
++
+ /** Statistiques complètes d'un exercice */
+ export function getExerciseStats(exerciseName: string): ExerciseStats {
+   const weightHistory = getWeightHistory(exerciseName);
++  const oneRMHistory = getOneRMHistory(exerciseName);
+   const db = getDb();
+ 
+   const prResult = db.getFirstSync<{ pr: number | null }>(
+@@ -304,6 +414,10 @@ export function getExerciseStats(exerciseName: string): ExerciseStats {
+   );
+   const personalRecord = prResult?.pr ?? 0;
+ 
++  const estimatedOneRM = oneRMHistory.length > 0
++    ? Math.max(...oneRMHistory.map((p) => p.value))
++    : 0;
++
+   const lastWeight = weightHistory.length > 0
+     ? weightHistory[weightHistory.length - 1].value
+     : 0;
+@@ -332,6 +446,10 @@ export function getExerciseStats(exerciseName: string): ExerciseStats {
+     ? Math.round(((lastWeight - oldWeight) / oldWeight) * 100)
+     : 0;
+ 
++  // Détection de plateau / régression basée sur le 1RM estimé, plus fiable
++  // que le poids brut car il prend en compte les répétitions.
++  const plateau = detectPlateau(oneRMHistory);
++
+   return {
+     name: exerciseName,
+     personalRecord,
+@@ -339,9 +457,42 @@ export function getExerciseStats(exerciseName: string): ExerciseStats {
+     totalSessions,
+     progressionPercent,
+     weightHistory,
++    estimatedOneRM: Math.round(estimatedOneRM * 10) / 10,
++    oneRMHistory,
++    plateau,
+   };
+ }
+ 
++/**
++ * Volume total par groupe musculaire sur une période donnée (30 jours par
++ * défaut). Les exercices personnalisés non reconnus sont classés "Autre".
++ */
++export function getVolumeByCategory(days: number = 30): CategoryVolume[] {
++  const db = getDb();
++  const since = dayjs().subtract(days, 'day').toISOString();
++
++  const rows = db.getAllSync<{ name: string; volume: number }>(
++    `SELECT e.name, SUM(s.weight * s.reps) as volume
++     FROM sets s
++     JOIN exercises e ON s.exercise_id = e.id
++     JOIN sessions sess ON e.session_id = sess.id
++     WHERE sess.date >= ?
++     GROUP BY e.name`,
++    [since]
++  );
++
++  const byCategory = new Map<string, number>();
++  for (const row of rows) {
++    const category = getCategoryForExercise(row.name);
++    byCategory.set(category, (byCategory.get(category) ?? 0) + (row.volume ?? 0));
++  }
++
++  return Array.from(byCategory.entries())
++    .map(([category, volume]) => ({ category, volume: Math.round(volume) }))
++    .filter((c) => c.volume > 0)
++    .sort((a, b) => b.volume - a.volume);
++}
++
+ /** Données complètes du tableau de bord */
+ export function getDashboardStats(): DashboardStats {
+   const db = getDb();
+@@ -354,5 +505,6 @@ export function getDashboardStats(): DashboardStats {
+     monthlySessionCount: getMonthlySessionCount(),
+     totalSessionCount: countResult?.count ?? 0,
+     personalRecords: getPersonalRecords(),
++    volumeByCategory: getVolumeByCategory(30),
+   };
+ }
+diff --git a/types/index.ts b/types/index.ts
+index 45a3de0..cd105ad 100644
+--- a/types/index.ts
++++ b/types/index.ts
+@@ -26,6 +26,7 @@ export interface Set {
+   set_number: number;
+   weight: number;         // En kg
+   reps: number;
++  rpe: number | null;     // Difficulté ressentie (RPE/RIR), 1-10
+   notes: string | null;
+ }
+ 
+@@ -61,6 +62,9 @@ export interface ChartPoint {
+   label?: string;
+ }
+ 
++/** Statut de progression pour la détection de plateau/deload */
++export type PlateauStatus = 'progressing' | 'plateau' | 'declining' | 'insufficient_data';
++
+ /** Statistiques d'un exercice */
+ export interface ExerciseStats {
+   name: string;
+@@ -69,6 +73,19 @@ export interface ExerciseStats {
+   totalSessions: number;          // Nombre de fois pratiqué
+   progressionPercent: number;     // Progression sur 30 jours (%)
+   weightHistory: ChartPoint[];    // Historique pour le graphique
++  estimatedOneRM: number;         // Meilleur 1RM estimé (formule d'Epley), en kg
++  oneRMHistory: ChartPoint[];     // Historique du 1RM estimé par séance
++  plateau: {
++    status: PlateauStatus;
++    sessionsSinceProgress: number; // Nb de séances depuis le dernier record
++    message: string;               // Message explicatif à afficher
++  };
++}
++
++/** Volume total pour un groupe musculaire donné */
++export interface CategoryVolume {
++  category: string;
++  volume: number;
+ }
+ 
+ /** Stats du tableau de bord */
+@@ -77,4 +94,5 @@ export interface DashboardStats {
+   monthlySessionCount: number;    // Séances ce mois
+   totalSessionCount: number;      // Total des séances
+   personalRecords: { name: string; weight: number }[];
++  volumeByCategory: CategoryVolume[]; // Volume par groupe musculaire (30 derniers jours)
+ }
