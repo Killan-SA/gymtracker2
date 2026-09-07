@@ -94,7 +94,7 @@ function SessionCard({
   onDelete: () => void;
 }) {
   const date = dayjs(session.date);
-  const isToday = date.isToday ? date.isToday() : date.isSame(dayjs(), 'day');
+  const isToday = date.isSame(dayjs(), 'day');
 
   return (
     <TouchableOpacity

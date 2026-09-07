@@ -9,9 +9,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   Modal,
+  SectionList,
 } from 'react-native';
-import { useState, useCallback, useEffect } from 'react';
-import { useLocalSearchParams, router, useNavigation } from 'expo-router';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
   getSessionWithExercises,
@@ -24,52 +25,57 @@ import {
   updateSet,
 } from '../../lib/queries';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
+import {
+  PREDEFINED_EXERCISES,
+  EXERCISE_CATEGORIES,
+  searchExercises,
+} from '../../constants/exercises';
 import type { ExerciseWithSets, Set } from '../../types';
 
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const navigation = useNavigation();
   const [exercises, setExercises] = useState<ExerciseWithSets[]>([]);
   const [showAddExercise, setShowAddExercise] = useState(false);
-  const [exerciseName, setExerciseName] = useState('');
-  const [autocomplete, setAutocomplete] = useState<string[]>([]);
-  const [allExerciseNames, setAllExerciseNames] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [recentNames, setRecentNames] = useState<string[]>([]);
 
   const loadSession = useCallback(() => {
     if (!id) return;
     const session = getSessionWithExercises(id);
-    if (session) {
-      setExercises(session.exercises);
-    }
-    setAllExerciseNames(getExerciseNames());
+    if (session) setExercises(session.exercises);
+    setRecentNames(getExerciseNames().slice(0, 8));
   }, [id]);
 
-  useEffect(() => {
-    loadSession();
-  }, [loadSession]);
+  useEffect(() => { loadSession(); }, [loadSession]);
 
-  // Autocomplete
-  useEffect(() => {
-    if (exerciseName.length < 1) {
-      setAutocomplete(allExerciseNames.slice(0, 5));
-    } else {
-      const filtered = allExerciseNames.filter((n) =>
-        n.toLowerCase().includes(exerciseName.toLowerCase())
-      );
-      setAutocomplete(filtered.slice(0, 5));
+  // Résultats de recherche
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    return searchExercises(searchQuery);
+  }, [searchQuery]);
+
+  // Sections pour la SectionList (quand pas de recherche)
+  const sections = useMemo(() => {
+    const s = [];
+    if (recentNames.length > 0) {
+      s.push({ title: 'Récents', data: recentNames.map(n => ({ name: n, category: 'Récents' })) });
     }
-  }, [exerciseName, allExerciseNames]);
+    for (const cat of EXERCISE_CATEGORIES) {
+      const items = PREDEFINED_EXERCISES.filter(e => e.category === cat);
+      if (items.length > 0) s.push({ title: cat, data: items });
+    }
+    return s;
+  }, [recentNames]);
 
-  const handleAddExercise = (name: string) => {
+  const handleSelectExercise = (name: string) => {
     if (!id || !name.trim()) return;
     addExerciseToSession(id, name.trim());
-    setExerciseName('');
+    setSearchQuery('');
     setShowAddExercise(false);
     loadSession();
   };
 
   const handleAddSet = (exerciseId: string) => {
-    // Pré-rempli avec la dernière série
     const last = getLastSetForExercise(exerciseId);
     addSet(exerciseId, last?.weight ?? 0, last?.reps ?? 0);
     loadSession();
@@ -78,22 +84,14 @@ export default function SessionScreen() {
   const handleDeleteSet = (setId: string) => {
     Alert.alert('Supprimer', 'Supprimer cette série ?', [
       { text: 'Annuler', style: 'cancel' },
-      {
-        text: 'Supprimer',
-        style: 'destructive',
-        onPress: () => { deleteSet(setId); loadSession(); },
-      },
+      { text: 'Supprimer', style: 'destructive', onPress: () => { deleteSet(setId); loadSession(); } },
     ]);
   };
 
   const handleDeleteExercise = (exerciseId: string, name: string) => {
     Alert.alert('Supprimer l\'exercice', `Supprimer "${name}" et toutes ses séries ?`, [
       { text: 'Annuler', style: 'cancel' },
-      {
-        text: 'Supprimer',
-        style: 'destructive',
-        onPress: () => { deleteExercise(exerciseId); loadSession(); },
-      },
+      { text: 'Supprimer', style: 'destructive', onPress: () => { deleteExercise(exerciseId); loadSession(); } },
     ]);
   };
 
@@ -105,10 +103,7 @@ export default function SessionScreen() {
         : `Séance terminée avec ${exercises.length} exercice(s). 💪`,
       [
         { text: 'Continuer la séance', style: 'cancel' },
-        {
-          text: 'Terminer ✅',
-          onPress: () => router.replace('/(tabs)/'),
-        },
+        { text: 'Terminer ✅', onPress: () => router.replace('/(tabs)' as any) },
       ]
     );
   };
@@ -134,9 +129,7 @@ export default function SessionScreen() {
             onReload={loadSession}
           />
         )}
-        ListHeaderComponent={
-          exercises.length === 0 ? <EmptySession /> : null
-        }
+        ListHeaderComponent={exercises.length === 0 ? <EmptySession /> : null}
         ListFooterComponent={
           <View style={styles.footer}>
             <TouchableOpacity
@@ -147,7 +140,6 @@ export default function SessionScreen() {
               <Ionicons name="add" size={22} color={COLORS.primary} />
               <Text style={styles.addExerciseText}>Ajouter un exercice</Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.finishButton}
               onPress={handleFinish}
@@ -160,67 +152,101 @@ export default function SessionScreen() {
         }
       />
 
-      {/* Modal ajout d'exercice */}
+      {/* ── Modal sélecteur d'exercice ─────────────────────── */}
       <Modal
         visible={showAddExercise}
-        transparent
         animationType="slide"
-        onRequestClose={() => setShowAddExercise(false)}
+        presentationStyle="pageSheet"
+        onRequestClose={() => { setSearchQuery(''); setShowAddExercise(false); }}
       >
-        {/* KAV à l'intérieur du Modal : fait remonter le sheet quand le clavier surgit */}
-        <KeyboardAvoidingView
-          style={modalStyles.kav}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <TouchableOpacity
-            style={modalStyles.backdrop}
-            activeOpacity={1}
-            onPress={() => setShowAddExercise(false)}
-          />
-          <View style={modalStyles.sheet}>
-            <View style={modalStyles.handle} />
-            <Text style={modalStyles.title}>Nouvel exercice</Text>
-
-            <TextInput
-              style={modalStyles.input}
-              placeholder="Ex: Développé couché, Squat..."
-              placeholderTextColor={COLORS.textMuted}
-              value={exerciseName}
-              onChangeText={setExerciseName}
-              autoFocus
-              returnKeyType="done"
-              onSubmitEditing={() => handleAddExercise(exerciseName)}
-            />
-
-            {/* Suggestions autocomplete */}
-            {autocomplete.map((name) => (
-              <TouchableOpacity
-                key={name}
-                style={modalStyles.suggestion}
-                onPress={() => handleAddExercise(name)}
-              >
-                <Ionicons name="time-outline" size={16} color={COLORS.textMuted} />
-                <Text style={modalStyles.suggestionText}>{name}</Text>
-              </TouchableOpacity>
-            ))}
-
-            <View style={modalStyles.actions}>
-              <TouchableOpacity
-                style={modalStyles.cancelButton}
-                onPress={() => { setExerciseName(''); setShowAddExercise(false); }}
-              >
-                <Text style={modalStyles.cancelText}>Annuler</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[modalStyles.confirmButton, !exerciseName.trim() && { opacity: 0.4 }]}
-                onPress={() => handleAddExercise(exerciseName)}
-                disabled={!exerciseName.trim()}
-              >
-                <Text style={modalStyles.confirmText}>Ajouter</Text>
-              </TouchableOpacity>
-            </View>
+        <View style={pickerStyles.container}>
+          {/* En-tête */}
+          <View style={pickerStyles.header}>
+            <Text style={pickerStyles.title}>Choisir un exercice</Text>
+            <TouchableOpacity
+              onPress={() => { setSearchQuery(''); setShowAddExercise(false); }}
+              style={pickerStyles.closeBtn}
+            >
+              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+            </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
+
+          {/* Barre de recherche */}
+          <View style={pickerStyles.searchRow}>
+            <Ionicons name="search" size={18} color={COLORS.textMuted} />
+            <TextInput
+              style={pickerStyles.searchInput}
+              placeholder="Rechercher un exercice..."
+              placeholderTextColor={COLORS.textMuted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCorrect={false}
+              clearButtonMode="while-editing"
+            />
+          </View>
+
+          {/* Résultats de recherche */}
+          {searchQuery.trim().length > 0 ? (
+            <FlatList
+              data={searchResults}
+              keyExtractor={(item) => item.name}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 40 }}
+              ListEmptyComponent={
+                <View style={pickerStyles.emptySearch}>
+                  <Text style={pickerStyles.emptyText}>Aucun résultat</Text>
+                  <TouchableOpacity
+                    style={pickerStyles.customBtn}
+                    onPress={() => handleSelectExercise(searchQuery.trim())}
+                  >
+                    <Ionicons name="add-circle" size={18} color={COLORS.primary} />
+                    <Text style={pickerStyles.customBtnText}>
+                      Ajouter « {searchQuery.trim()} »
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              }
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={pickerStyles.exerciseRow}
+                  onPress={() => handleSelectExercise(item.name)}
+                >
+                  <View style={pickerStyles.categoryBadge}>
+                    <Text style={pickerStyles.categoryBadgeText}>{item.category}</Text>
+                  </View>
+                  <Text style={pickerStyles.exerciseName}>{item.name}</Text>
+                  <Ionicons name="add" size={20} color={COLORS.primary} />
+                </TouchableOpacity>
+              )}
+            />
+          ) : (
+            /* Liste par catégories */
+            <SectionList
+              sections={sections}
+              keyExtractor={(item) => item.name}
+              keyboardShouldPersistTaps="handled"
+              stickySectionHeadersEnabled
+              contentContainerStyle={{ paddingBottom: 40 }}
+              renderSectionHeader={({ section }) => (
+                <View style={pickerStyles.sectionHeader}>
+                  <Text style={pickerStyles.sectionTitle}>{section.title}</Text>
+                </View>
+              )}
+              renderItem={({ item, section }) => (
+                <TouchableOpacity
+                  style={pickerStyles.exerciseRow}
+                  onPress={() => handleSelectExercise(item.name)}
+                >
+                  {section.title === 'Récents' && (
+                    <Ionicons name="time-outline" size={16} color={COLORS.textMuted} style={{ marginRight: 4 }} />
+                  )}
+                  <Text style={[pickerStyles.exerciseName, { flex: 1 }]}>{item.name}</Text>
+                  <Ionicons name="add" size={20} color={COLORS.primary} />
+                </TouchableOpacity>
+              )}
+            />
+          )}
+        </View>
       </Modal>
     </KeyboardAvoidingView>
   );
@@ -253,7 +279,6 @@ function ExerciseCard({
         </TouchableOpacity>
       </View>
 
-      {/* En-tête colonnes */}
       <View style={cardStyles.columnsHeader}>
         <Text style={cardStyles.colLabel}>Série</Text>
         <Text style={cardStyles.colLabel}>Poids (kg)</Text>
@@ -261,7 +286,6 @@ function ExerciseCard({
         <View style={{ width: 32 }} />
       </View>
 
-      {/* Séries */}
       {exercise.sets.map((set) => (
         <SetRow
           key={set.id}
@@ -287,17 +311,13 @@ function ExerciseCard({
 // SetRow
 // ============================================================
 
-function SetRow({
-  set,
-  onDelete,
-  onReload,
-}: {
+function SetRow({ set, onDelete, onReload }: {
   set: Set;
   onDelete: () => void;
   onReload: () => void;
 }) {
-  const [weight, setWeight] = useState(set.weight.toString());
-  const [reps, setReps] = useState(set.reps.toString());
+  const [weight, setWeight] = useState(set.weight > 0 ? set.weight.toString() : '');
+  const [reps, setReps] = useState(set.reps > 0 ? set.reps.toString() : '');
 
   const handleBlur = () => {
     const w = parseFloat(weight) || 0;
@@ -313,7 +333,6 @@ function SetRow({
       <View style={setRowStyles.setNumberContainer}>
         <Text style={setRowStyles.setNumber}>{set.set_number}</Text>
       </View>
-
       <TextInput
         style={setRowStyles.input}
         value={weight}
@@ -324,7 +343,6 @@ function SetRow({
         placeholder="0"
         placeholderTextColor={COLORS.textMuted}
       />
-
       <TextInput
         style={setRowStyles.input}
         value={reps}
@@ -335,7 +353,6 @@ function SetRow({
         placeholder="0"
         placeholderTextColor={COLORS.textMuted}
       />
-
       <TouchableOpacity onPress={onDelete} style={setRowStyles.deleteButton}>
         <Ionicons name="close-circle" size={22} color={COLORS.textMuted} />
       </TouchableOpacity>
@@ -351,9 +368,7 @@ function EmptySession() {
   return (
     <View style={emptyStyles.container}>
       <Text style={emptyStyles.emoji}>🏋️</Text>
-      <Text style={emptyStyles.text}>
-        Commence par ajouter ton premier exercice !
-      </Text>
+      <Text style={emptyStyles.text}>Commence par ajouter ton premier exercice !</Text>
     </View>
   );
 }
@@ -367,239 +382,119 @@ const styles = StyleSheet.create({
   listContent: { padding: SPACING.base, paddingBottom: 120 },
   footer: { gap: SPACING.md, marginTop: SPACING.lg, paddingBottom: SPACING.xl },
   addExerciseButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: SPACING.sm,
-    padding: SPACING.base,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderColor: COLORS.primary,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: SPACING.sm, padding: SPACING.base, borderRadius: RADIUS.lg,
+    borderWidth: 1.5, borderStyle: 'dashed', borderColor: COLORS.primary,
     backgroundColor: COLORS.primaryGlow,
   },
-  addExerciseText: {
-    fontSize: FONTS.base,
-    fontWeight: FONTS.semibold,
-    color: COLORS.primary,
-  },
+  addExerciseText: { fontSize: FONTS.base, fontWeight: FONTS.semibold, color: COLORS.primary },
   finishButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: SPACING.sm,
-    padding: SPACING.base,
-    borderRadius: RADIUS.lg,
-    backgroundColor: COLORS.success,
-    ...SHADOWS.card,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: SPACING.sm, padding: SPACING.base, borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.success, ...SHADOWS.card,
   },
-  finishButtonText: {
-    fontSize: FONTS.md,
-    fontWeight: FONTS.bold,
-    color: '#fff',
-  },
+  finishButtonText: { fontSize: FONTS.md, fontWeight: FONTS.bold, color: '#fff' },
 });
 
 const cardStyles = StyleSheet.create({
   container: {
-    backgroundColor: COLORS.card,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.base,
-    marginBottom: SPACING.md,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    ...SHADOWS.card,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    padding: SPACING.base, marginBottom: SPACING.md,
+    borderWidth: 1, borderColor: COLORS.cardBorder, ...SHADOWS.card,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    marginBottom: SPACING.md,
-    paddingBottom: SPACING.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLORS.separator,
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    marginBottom: SPACING.md, paddingBottom: SPACING.md,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.separator,
   },
-  name: {
-    flex: 1,
-    fontSize: FONTS.md,
-    fontWeight: FONTS.bold,
-    color: COLORS.textPrimary,
-  },
+  name: { flex: 1, fontSize: FONTS.md, fontWeight: FONTS.bold, color: COLORS.textPrimary },
   columnsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: SPACING.sm,
-    paddingHorizontal: 2,
+    flexDirection: 'row', alignItems: 'center',
+    marginBottom: SPACING.sm, paddingHorizontal: 2,
   },
   colLabel: {
-    flex: 1,
-    fontSize: FONTS.xs,
-    color: COLORS.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    fontWeight: FONTS.medium,
+    flex: 1, fontSize: FONTS.xs, color: COLORS.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: FONTS.medium,
   },
   noSets: {
-    fontSize: FONTS.sm,
-    color: COLORS.textMuted,
-    textAlign: 'center',
-    paddingVertical: SPACING.md,
-    fontStyle: 'italic',
+    fontSize: FONTS.sm, color: COLORS.textMuted, textAlign: 'center',
+    paddingVertical: SPACING.md, fontStyle: 'italic',
   },
   addSetButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: SPACING.xs,
-    paddingVertical: SPACING.sm,
-    marginTop: SPACING.sm,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: SPACING.xs, paddingVertical: SPACING.sm, marginTop: SPACING.sm,
   },
-  addSetText: {
-    fontSize: FONTS.sm,
-    fontWeight: FONTS.medium,
-    color: COLORS.primary,
-  },
+  addSetText: { fontSize: FONTS.sm, fontWeight: FONTS.medium, color: COLORS.primary },
 });
 
 const setRowStyles = StyleSheet.create({
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
     paddingVertical: SPACING.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLORS.separator,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.separator,
   },
   setNumberContainer: {
-    width: 28,
-    height: 28,
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.primaryGlow,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 28, height: 28, borderRadius: RADIUS.full,
+    backgroundColor: COLORS.primaryGlow, alignItems: 'center', justifyContent: 'center',
   },
-  setNumber: {
-    fontSize: FONTS.sm,
-    fontWeight: FONTS.bold,
-    color: COLORS.primary,
-  },
+  setNumber: { fontSize: FONTS.sm, fontWeight: FONTS.bold, color: COLORS.primary },
   input: {
-    flex: 1,
-    height: 40,
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.sm,
-    paddingHorizontal: SPACING.sm,
-    fontSize: FONTS.md,
-    fontWeight: FONTS.semibold,
-    color: COLORS.textPrimary,
-    textAlign: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
+    flex: 1, height: 40, backgroundColor: COLORS.surface, borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.sm, fontSize: FONTS.md, fontWeight: FONTS.semibold,
+    color: COLORS.textPrimary, textAlign: 'center',
+    borderWidth: 1, borderColor: COLORS.cardBorder,
   },
-  deleteButton: {
-    width: 32,
-    alignItems: 'center',
-  },
+  deleteButton: { width: 32, alignItems: 'center' },
 });
 
-const modalStyles = StyleSheet.create({
-  kav: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'flex-end',
+const pickerStyles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: COLORS.background },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    padding: SPACING.base, paddingTop: SPACING.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.separator,
   },
-  backdrop: {
-    flex: 1,
+  title: { fontSize: FONTS.xl, fontWeight: FONTS.bold, color: COLORS.textPrimary },
+  closeBtn: { padding: SPACING.xs },
+  searchRow: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    margin: SPACING.base, backgroundColor: COLORS.card,
+    borderRadius: RADIUS.lg, paddingHorizontal: SPACING.base, paddingVertical: SPACING.sm,
+    borderWidth: 1, borderColor: COLORS.cardBorder,
   },
-  sheet: {
-    backgroundColor: COLORS.surface,
-    borderTopLeftRadius: RADIUS.xl,
-    borderTopRightRadius: RADIUS.xl,
-    padding: SPACING.xl,
-    paddingBottom: 40,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.cardBorder,
+  searchInput: { flex: 1, fontSize: FONTS.base, color: COLORS.textPrimary },
+  sectionHeader: {
+    backgroundColor: COLORS.background,
+    paddingHorizontal: SPACING.base, paddingVertical: SPACING.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.separator,
   },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: COLORS.cardBorder,
-    alignSelf: 'center',
-    marginBottom: SPACING.xl,
+  sectionTitle: {
+    fontSize: FONTS.xs, fontWeight: FONTS.bold, color: COLORS.primary,
+    textTransform: 'uppercase', letterSpacing: 0.8,
   },
-  title: {
-    fontSize: FONTS.xl,
-    fontWeight: FONTS.bold,
-    color: COLORS.textPrimary,
-    marginBottom: SPACING.lg,
+  exerciseRow: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    paddingHorizontal: SPACING.base, paddingVertical: SPACING.md,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.separator,
   },
-  input: {
-    backgroundColor: COLORS.card,
-    borderRadius: RADIUS.md,
-    padding: SPACING.base,
-    fontSize: FONTS.md,
-    color: COLORS.textPrimary,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    marginBottom: SPACING.md,
+  exerciseName: { flex: 1, fontSize: FONTS.base, color: COLORS.textPrimary },
+  categoryBadge: {
+    backgroundColor: COLORS.primaryGlow, borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.sm, paddingVertical: 2,
   },
-  suggestion: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    paddingHorizontal: SPACING.sm,
-    borderRadius: RADIUS.sm,
+  categoryBadgeText: { fontSize: FONTS.xs, color: COLORS.primary, fontWeight: FONTS.medium },
+  emptySearch: { padding: SPACING.xl, alignItems: 'center', gap: SPACING.lg },
+  emptyText: { fontSize: FONTS.base, color: COLORS.textMuted },
+  customBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    backgroundColor: COLORS.primaryGlow, padding: SPACING.base,
+    borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.primary,
   },
-  suggestionText: {
-    fontSize: FONTS.base,
-    color: COLORS.textSecondary,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: SPACING.md,
-    marginTop: SPACING.lg,
-  },
-  cancelButton: {
-    flex: 1,
-    padding: SPACING.base,
-    borderRadius: RADIUS.md,
-    alignItems: 'center',
-    backgroundColor: COLORS.card,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-  },
-  cancelText: {
-    fontSize: FONTS.base,
-    color: COLORS.textSecondary,
-    fontWeight: FONTS.medium,
-  },
-  confirmButton: {
-    flex: 1,
-    padding: SPACING.base,
-    borderRadius: RADIUS.md,
-    alignItems: 'center',
-    backgroundColor: COLORS.primary,
-    ...SHADOWS.primary,
-  },
-  confirmText: {
-    fontSize: FONTS.base,
-    color: '#fff',
-    fontWeight: FONTS.bold,
-  },
+  customBtnText: { fontSize: FONTS.base, color: COLORS.primary, fontWeight: FONTS.semibold },
 });
 
 const emptyStyles = StyleSheet.create({
-  container: {
-    alignItems: 'center',
-    paddingVertical: SPACING.xxxl,
-  },
+  container: { alignItems: 'center', paddingVertical: SPACING.xxxl },
   emoji: { fontSize: 48, marginBottom: SPACING.lg },
-  text: {
-    fontSize: FONTS.base,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
+  text: { fontSize: FONTS.base, color: COLORS.textSecondary, textAlign: 'center', lineHeight: 22 },
 });

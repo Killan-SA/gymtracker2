@@ -8,6 +8,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { useState } from 'react';
+import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, SPACING, RADIUS } from '../../constants/theme';
 
@@ -73,6 +74,14 @@ export default function SettingsScreen() {
       <Text style={styles.sectionTitle}>Données</Text>
       <View style={styles.section}>
         <SettingRow
+          icon="cloud-upload-outline"
+          iconColor={COLORS.primary}
+          label="Importer depuis Excel (.xlsx)"
+          onPress={() => router.push('/import' as any)}
+          showArrow
+        />
+        <View style={styles.rowDivider} />
+        <SettingRow
           icon="download-outline"
           iconColor={COLORS.success}
           label="Exporter mes données"
@@ -88,6 +97,7 @@ export default function SettingsScreen() {
           onPress={handleReset}
         />
       </View>
+
 
       {/* Section À propos */}
       <Text style={styles.sectionTitle}>À propos</Text>
