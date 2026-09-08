@@ -36,10 +36,12 @@ export default function ExerciseDetailScreen() {
   const [period, setPeriod] = useState<PeriodTab>('3M');
   const [stats, setStats] = useState<ExerciseStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [focusedPoint, setFocusedPoint] = useState<{ value: number; label: string } | null>(null);
 
   const reload = useCallback(() => {
     if (!name) return;
     setLoading(true);
+    setFocusedPoint(null);
     const selectedPeriod = PERIODS.find((p) => p.label === period);
     const s = getExerciseStats(decodeURIComponent(name), selectedPeriod?.days);
     setStats(s);
@@ -183,6 +185,19 @@ export default function ExerciseDetailScreen() {
         {/* Chart */}
         {giftedLabeled.length >= 2 ? (
           <View style={styles.chartWrapper}>
+            {/* Tooltip du point sélectionné */}
+            <View style={styles.tooltipRow}>
+              {focusedPoint ? (
+                <View style={[styles.tooltip, { borderColor: chartColor }]}>
+                  <Text style={[styles.tooltipValue, { color: chartColor }]}>
+                    {focusedPoint.value} {metric === 'reps' ? 'reps' : 'kg'}
+                  </Text>
+                  <Text style={styles.tooltipDate}>{focusedPoint.label}</Text>
+                </View>
+              ) : (
+                <Text style={styles.tooltipHint}>Appuie sur un point pour voir la valeur</Text>
+              )}
+            </View>
             <LineChart
               areaChart
               data={giftedLabeled}
@@ -195,17 +210,26 @@ export default function ExerciseDetailScreen() {
               startOpacity={0.25}
               endOpacity={0}
               dataPointsColor={chartColor}
-              dataPointsRadius={4}
+              dataPointsRadius={5}
               backgroundColor="transparent"
               rulesColor={COLORS.separator}
               rulesType="solid"
               noOfSections={4}
               yAxisTextStyle={{ color: COLORS.textMuted, fontSize: 10 }}
               xAxisLabelTextStyle={{ color: COLORS.textMuted, fontSize: 10 }}
-              hideAxesAndRules={false}
               xAxisColor={COLORS.separator}
               yAxisColor="transparent"
               curved
+              focusEnabled
+              showDataPointOnFocus
+              showStripOnFocus
+              stripColor={chartColor + '60'}
+              stripWidth={1}
+              focusedDataPointColor={chartColor}
+              focusedDataPointRadius={7}
+              onFocus={(item: any) => {
+                setFocusedPoint({ value: item.value, label: item.label ?? '' });
+              }}
             />
             <Text style={styles.chartUnit}>{chartLabel}</Text>
           </View>
@@ -305,6 +329,19 @@ const styles = StyleSheet.create({
     fontSize: FONTS.xs, color: COLORS.textMuted,
     alignSelf: 'flex-end', marginTop: 4, fontStyle: 'italic',
   },
+
+  tooltipRow: {
+    height: 44, justifyContent: 'center', alignItems: 'center', marginBottom: SPACING.sm,
+  },
+  tooltip: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs,
+    borderWidth: 1,
+  },
+  tooltipValue: { fontSize: FONTS.lg, fontWeight: FONTS.bold },
+  tooltipDate: { fontSize: FONTS.sm, color: COLORS.textMuted },
+  tooltipHint: { fontSize: FONTS.xs, color: COLORS.textMuted, fontStyle: 'italic' },
 
   noDataChart: {
     alignItems: 'center', paddingVertical: SPACING.xxxl, gap: SPACING.md,

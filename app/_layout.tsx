@@ -33,6 +33,7 @@ export default function RootLayout() {
             headerStyle: { backgroundColor: COLORS.surface },
             headerTintColor: COLORS.textPrimary,
             headerTitle: 'Séance en cours',
+            headerBackTitle: ' ',
             presentation: 'modal',
           }}
         />
@@ -43,6 +44,7 @@ export default function RootLayout() {
             headerStyle: { backgroundColor: COLORS.surface },
             headerTintColor: COLORS.textPrimary,
             headerTitle: 'Détail de la séance',
+            headerBackTitle: ' ',
           }}
         />
         <Stack.Screen
@@ -52,6 +54,7 @@ export default function RootLayout() {
             headerStyle: { backgroundColor: COLORS.surface },
             headerTintColor: COLORS.textPrimary,
             headerTitle: 'Progression',
+            headerBackTitle: ' ',
           }}
         />
         <Stack.Screen
@@ -61,6 +64,7 @@ export default function RootLayout() {
             headerStyle: { backgroundColor: COLORS.surface },
             headerTintColor: COLORS.textPrimary,
             headerTitle: 'Importer un historique',
+            headerBackTitle: ' ',
             presentation: 'modal',
           }}
         />
