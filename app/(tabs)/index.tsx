@@ -13,28 +13,27 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/fr';
-import { BarChart } from 'react-native-gifted-charts';
 import {
   getLastSession,
   getDashboardStats,
   getSessionVolume,
   createSession,
+  getTotalVolumeAllTime,
+  getFrequentSessionTemplates,
+  getSmartSessionRecommendation,
+  createSessionFromTemplate,
 } from '../../lib/queries';
+import type { SessionTemplate } from '../../lib/queries';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
 import type { Session, DashboardStats } from '../../types';
 
 dayjs.locale('fr');
 
-const BAR_COLORS = [
-  COLORS.primary,
-  COLORS.success,
-  COLORS.warning,
-  COLORS.danger,
-  COLORS.primaryLight,
-  '#8B5CF6',
-  '#22D3EE',
-  '#F472B6',
-];
+const formatVolume = (kg: number): string => {
+  if (kg >= 1_000_000) return `${(kg / 1_000_000).toFixed(1)} Mt`;
+  if (kg >= 1_000) return `${(kg / 1_000).toFixed(1)} t`;
+  return `${kg} kg`;
+};
 
 export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
@@ -46,20 +45,39 @@ export default function DashboardScreen() {
     personalRecords: [],
   });
   const [lastSessionVolume, setLastSessionVolume] = useState(0);
+  const [totalVolume, setTotalVolume] = useState(0);
+  const [templates, setTemplates] = useState<SessionTemplate[]>([]);
+  const [smartSession, setSmartSession] = useState<SessionTemplate | null>(null);
 
   const loadData = useCallback(() => {
-    const session = getLastSession();
-    const dashboardStats = getDashboardStats();
-    setLastSession(session);
-    setStats(dashboardStats);
-    if (session) {
-      setLastSessionVolume(getSessionVolume(session.id));
+    try {
+      const session = getLastSession();
+      const dashboardStats = getDashboardStats();
+      setLastSession(session);
+      setStats(dashboardStats);
+      if (session) setLastSessionVolume(getSessionVolume(session.id));
+    } catch (e) {
+      console.error('[Dashboard] loadData error:', e);
+    }
+    // Séparé du try principal pour ne pas bloquer les stats si elles échouent
+    try {
+      setTotalVolume(getTotalVolumeAllTime());
+    } catch (e) {
+      console.error('[Dashboard] totalVolume error:', e);
+    }
+    try {
+      setTemplates(getFrequentSessionTemplates());
+    } catch (e) {
+      console.error('[Dashboard] templates error:', e);
+    }
+    try {
+      setSmartSession(getSmartSessionRecommendation());
+    } catch (e) {
+      console.error('[Dashboard] smartSession error:', e);
     }
   }, []);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -74,10 +92,31 @@ export default function DashboardScreen() {
       [
         { text: 'Annuler', style: 'cancel' },
         {
-          text: 'C\'est parti ! 💪',
+          text: 'C\'est parti 💪',
           onPress: () => {
             const session = createSession();
-            router.push(`/session/${session.id}`);
+            router.push(`/session/${session.id}` as any);
+            loadData();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleStartTemplate = (template: SessionTemplate, label: string) => {
+    Alert.alert(
+      `Démarrer "${label}" ?`,
+      template.exercises.map((ex) =>
+        `• ${ex.name}${ex.suggestedWeight > 0 ? ` → ${ex.suggestedWeight} kg` : ''}`
+      ).join('\n'),
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Démarrer 💪',
+          onPress: () => {
+            const sessionId = createSessionFromTemplate(template);
+            router.push(`/session/${sessionId}` as any);
+            loadData();
           },
         },
       ]
@@ -85,399 +124,336 @@ export default function DashboardScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={COLORS.primary}
-          />
-        }
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>
-              {getGreeting()}
-            </Text>
-            <Text style={styles.date}>
-              {dayjs().format('dddd D MMMM')}
-            </Text>
-          </View>
-          <View style={styles.streakBadge}>
-            <Ionicons name="flame" size={16} color={COLORS.warning} />
-            <Text style={styles.streakText}>{stats.monthlySessionCount}</Text>
-          </View>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
+    >
+      {/* ── Header ─────────────────────────────────────────── */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.greeting}>Bonjour 👋</Text>
+          <Text style={styles.date}>{dayjs().format('dddd D MMMM')}</Text>
         </View>
-
-        {/* CTA Bouton principal */}
-        <TouchableOpacity
-          style={styles.ctaButton}
-          onPress={handleNewSession}
-          activeOpacity={0.85}
-        >
-          <View style={styles.ctaContent}>
-            <Ionicons name="add-circle" size={28} color={COLORS.textPrimary} />
-            <View style={styles.ctaTextContainer}>
-              <Text style={styles.ctaTitle}>Commencer une séance</Text>
-              <Text style={styles.ctaSubtitle}>Enregistre tes performances</Text>
-            </View>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={COLORS.primaryLight} />
+        <TouchableOpacity style={styles.newSessionBtn} onPress={handleNewSession}>
+          <Ionicons name="add" size={22} color="#fff" />
+          <Text style={styles.newSessionText}>Séance</Text>
         </TouchableOpacity>
+      </View>
 
-        {/* Stats rapides */}
-        <Text style={styles.sectionTitle}>Cette semaine</Text>
-        <View style={styles.statsGrid}>
-          <StatCard
-            icon="flash"
-            iconColor={COLORS.primary}
-            label="Volume total"
-            value={`${Math.round(stats.weeklyVolume).toLocaleString('fr')} kg`}
-          />
-          <StatCard
-            icon="calendar"
-            iconColor={COLORS.success}
-            label="Séances ce mois"
-            value={`${stats.monthlySessionCount}`}
-          />
+      {/* ── Stats principales ──────────────────────────────── */}
+      <View style={styles.statsRow}>
+        <StatCard
+          icon="flame"
+          label="Vol. 7 jours"
+          value={formatVolume(stats.weeklyVolume)}
+          color={COLORS.warning}
+        />
+        <StatCard
+          icon="calendar"
+          label="Ce mois"
+          value={`${stats.monthlySessionCount} séances`}
+          color={COLORS.primary}
+        />
+        <StatCard
+          icon="barbell"
+          label="Total séances"
+          value={`${stats.totalSessionCount}`}
+          color={COLORS.success}
+        />
+      </View>
+
+      {/* ── Volume total all-time ─────────────────────────── */}
+      {totalVolume > 0 && (
+        <View style={styles.totalVolumeCard}>
+          <Ionicons name="stats-chart" size={22} color={COLORS.primary} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.totalVolumeLabel}>Volume total soulevé depuis le début</Text>
+            <Text style={styles.totalVolumeValue}>{formatVolume(totalVolume)}</Text>
+          </View>
+          <Text style={styles.totalVolumeEmoji}>
+            {totalVolume >= 1_000_000 ? '🏆' : totalVolume >= 100_000 ? '🔥' : '💪'}
+          </Text>
         </View>
+      )}
 
-        {/* Dernière séance */}
-        {lastSession ? (
-          <>
-            <Text style={styles.sectionTitle}>Dernière séance</Text>
-            <TouchableOpacity
-              style={styles.lastSessionCard}
-              onPress={() => router.push(`/history/${lastSession.id}`)}
-              activeOpacity={0.8}
-            >
-              <View style={styles.lastSessionHeader}>
-                <View style={styles.lastSessionIconContainer}>
-                  <Ionicons name="barbell" size={20} color={COLORS.primary} />
+      {/* ── Séance intelligente (plateau) ─────────────────── */}
+      {smartSession && (
+        <>
+          <Text style={styles.sectionTitle}>🧠 Séance conseillée</Text>
+          <TouchableOpacity
+            style={styles.smartCard}
+            onPress={() => handleStartTemplate(smartSession, 'Séance anti-plateau')}
+            activeOpacity={0.85}
+          >
+            <View style={styles.smartCardHeader}>
+              <Ionicons name="trending-up" size={20} color={COLORS.warning} />
+              <Text style={styles.smartCardTitle}>Tu stagnes — voici comment débloquer</Text>
+            </View>
+            <Text style={styles.smartCardSub}>
+              {smartSession.exercises.length} exercice{smartSession.exercises.length > 1 ? 's' : ''} avec plateau détecté · +2.5 kg recommandé
+            </Text>
+            <View style={styles.smartExerciseList}>
+              {smartSession.exercises.map((ex) => (
+                <View key={ex.name} style={styles.smartExRow}>
+                  <Text style={styles.smartExName}>{ex.name}</Text>
+                  {ex.suggestedWeight > 0 && (
+                    <View style={styles.suggestedBadge}>
+                      <Text style={styles.suggestedText}>
+                        {ex.lastWeight} → {ex.suggestedWeight} kg
+                      </Text>
+                    </View>
+                  )}
                 </View>
-                <View style={styles.lastSessionInfo}>
-                  <Text style={styles.lastSessionDate}>
-                    {dayjs(lastSession.date).format('dddd D MMMM [à] HH[h]mm')}
-                  </Text>
-                  <Text style={styles.lastSessionVolume}>
-                    Volume : {Math.round(lastSessionVolume).toLocaleString('fr')} kg
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
-              </View>
-              {lastSession.notes && (
-                <Text style={styles.lastSessionNotes}>{lastSession.notes}</Text>
-              )}
-            </TouchableOpacity>
-          </>
-        ) : (
-          <EmptyState />
-        )}
-
-
-        {/* Records personnels */}
-        {stats.personalRecords.length > 0 && (
-          <>
-            <Text style={styles.sectionTitle}>Records personnels 🏆</Text>
-            <View style={styles.recordsList}>
-              {stats.personalRecords.map((record, i) => (
-                <TouchableOpacity
-                  key={record.name}
-                  style={styles.recordItem}
-                  onPress={() => router.push(`/exercises/${encodeURIComponent(record.name)}`)}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.recordRank}>
-                    <Text style={styles.recordRankText}>{i + 1}</Text>
-                  </View>
-                  <Text style={styles.recordName} numberOfLines={1}>{record.name}</Text>
-                  <Text style={styles.recordWeight}>{record.weight} kg</Text>
-                </TouchableOpacity>
               ))}
             </View>
-          </>
-        )}
+            <View style={styles.startBtnRow}>
+              <Text style={styles.startBtnText}>Démarrer cette séance →</Text>
+            </View>
+          </TouchableOpacity>
+        </>
+      )}
 
-        <View style={styles.bottomSpacer} />
-      </ScrollView>
-    </View>
+      {/* ── Séances habituelles ───────────────────────────── */}
+      {templates.length > 0 && (
+        <>
+          <Text style={styles.sectionTitle}>📋 Tes séances habituelles</Text>
+          {templates.map((tmpl, i) => (
+            <TouchableOpacity
+              key={i}
+              style={styles.templateCard}
+              onPress={() => handleStartTemplate(tmpl, `Séance ${i + 1}`)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.templateHeader}>
+                <Text style={styles.templateTitle}>
+                  {tmpl.exercises.slice(0, 2).map(e => e.name).join(' + ')}
+                  {tmpl.exercises.length > 2 ? ` +${tmpl.exercises.length - 2}` : ''}
+                </Text>
+                <View style={styles.countBadge}>
+                  <Text style={styles.countBadgeText}>{tmpl.count}×</Text>
+                </View>
+              </View>
+              <View style={styles.templateExList}>
+                {tmpl.exercises.map((ex) => (
+                  <View key={ex.name} style={styles.templateExRow}>
+                    <Text style={styles.templateExName}>{ex.name}</Text>
+                    {ex.suggestedWeight > 0 && (
+                      <Text style={[
+                        styles.templateExWeight,
+                        { color: ex.plateauDetected ? COLORS.warning : COLORS.success },
+                      ]}>
+                        {ex.plateauDetected ? '⟳' : '↑'} {ex.suggestedWeight} kg
+                      </Text>
+                    )}
+                  </View>
+                ))}
+              </View>
+              <Text style={styles.templateLastDate}>
+                Dernière fois : {dayjs(tmpl.lastDate).format('D MMM YYYY')}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </>
+      )}
+
+      {/* ── Dernière séance ───────────────────────────────── */}
+      {lastSession && (
+        <>
+          <Text style={styles.sectionTitle}>Dernière séance</Text>
+          <TouchableOpacity
+            style={styles.sessionCard}
+            onPress={() => router.push(`/history/${lastSession.id}` as any)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.sessionCardRow}>
+              <Ionicons name="time-outline" size={18} color={COLORS.primary} />
+              <Text style={styles.sessionDate}>
+                {dayjs(lastSession.date).format('dddd D MMM · HH:mm')}
+              </Text>
+            </View>
+            {lastSessionVolume > 0 && (
+              <Text style={styles.sessionVolume}>
+                Volume : {formatVolume(lastSessionVolume)}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </>
+      )}
+
+      {/* ── Records personnels ───────────────────────────── */}
+      {stats.personalRecords.length > 0 && (
+        <>
+          <Text style={styles.sectionTitle}>🏆 Records personnels</Text>
+          <View style={styles.recordsCard}>
+            {stats.personalRecords.map((pr, i) => (
+              <TouchableOpacity
+                key={pr.name}
+                style={[styles.recordRow, i < stats.personalRecords.length - 1 && styles.recordBorder]}
+                onPress={() => router.push(`/exercises/${encodeURIComponent(pr.name)}` as any)}
+              >
+                <Text style={styles.recordName}>{pr.name}</Text>
+                <Text style={styles.recordWeight}>{pr.weight} kg</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </>
+      )}
+
+      {stats.totalSessionCount === 0 && (
+        <EmptyState onPress={handleNewSession} />
+      )}
+    </ScrollView>
   );
 }
 
-// ============================================================
-// Sous-composants
-// ============================================================
+// ── StatCard ─────────────────────────────────────────────────
 
-function StatCard({
-  icon,
-  iconColor,
-  label,
-  value,
-}: {
-  icon: string;
-  iconColor: string;
-  label: string;
-  value: string;
+function StatCard({ icon, label, value, color }: {
+  icon: string; label: string; value: string; color: string;
 }) {
   return (
-    <View style={statStyles.card}>
-      <Ionicons name={icon as any} size={22} color={iconColor} />
+    <View style={[statStyles.card, { borderColor: color + '40' }]}>
+      <Ionicons name={icon as any} size={18} color={color} />
       <Text style={statStyles.value}>{value}</Text>
       <Text style={statStyles.label}>{label}</Text>
     </View>
   );
 }
 
-function EmptyState() {
+// ── EmptyState ───────────────────────────────────────────────
+
+function EmptyState({ onPress }: { onPress: () => void }) {
   return (
     <View style={emptyStyles.container}>
-      <Text style={emptyStyles.emoji}>💪</Text>
-      <Text style={emptyStyles.title}>Prêt à commencer ?</Text>
-      <Text style={emptyStyles.subtitle}>
-        Enregistre ta première séance pour voir ta progression ici.
-      </Text>
+      <Text style={emptyStyles.emoji}>🏋️</Text>
+      <Text style={emptyStyles.title}>Commence ton aventure</Text>
+      <Text style={emptyStyles.sub}>Enregistre ta première séance et suis tes progrès.</Text>
+      <TouchableOpacity style={emptyStyles.btn} onPress={onPress}>
+        <Text style={emptyStyles.btnText}>Démarrer une séance</Text>
+      </TouchableOpacity>
     </View>
   );
 }
 
-// ============================================================
-// Utilitaires
-// ============================================================
-
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Bonjour 👋';
-  if (hour < 18) return 'Bon après-midi 👋';
-  return 'Bonsoir 👋';
-}
-
-// ============================================================
-// Styles
-// ============================================================
+// ── Styles ───────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: SPACING.base, paddingTop: SPACING.lg },
+  content: { padding: SPACING.base, paddingBottom: 80 },
 
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: SPACING.xl,
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: SPACING.xl,
   },
-  greeting: {
-    fontSize: FONTS.xxl,
-    fontWeight: FONTS.bold,
-    color: COLORS.textPrimary,
+  greeting: { fontSize: FONTS.xxl, fontWeight: FONTS.bold, color: COLORS.textPrimary },
+  date: { fontSize: FONTS.sm, color: COLORS.textSecondary, marginTop: 2, textTransform: 'capitalize' },
+  newSessionBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.xs,
+    backgroundColor: COLORS.primary, borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm,
   },
-  date: {
-    fontSize: FONTS.sm,
-    color: COLORS.textSecondary,
-    marginTop: 2,
-    textTransform: 'capitalize',
-  },
-  streakBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: COLORS.warningGlow,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.full,
-    borderWidth: 1,
-    borderColor: `${COLORS.warning}40`,
-  },
-  streakText: {
-    fontSize: FONTS.base,
-    fontWeight: FONTS.bold,
-    color: COLORS.warning,
-  },
+  newSessionText: { color: '#fff', fontWeight: FONTS.bold, fontSize: FONTS.sm },
 
-  ctaButton: {
-    backgroundColor: COLORS.primary,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.base,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: SPACING.xl,
-    ...SHADOWS.primary,
+  statsRow: { flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.lg },
+
+  totalVolumeCard: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.md,
+    backgroundColor: COLORS.primaryGlow, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.primary + '40',
+    padding: SPACING.base, marginBottom: SPACING.xl,
   },
-  ctaContent: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
-  ctaTextContainer: {},
-  ctaTitle: {
-    fontSize: FONTS.md,
-    fontWeight: FONTS.bold,
-    color: COLORS.textPrimary,
-  },
-  ctaSubtitle: {
-    fontSize: FONTS.sm,
-    color: 'rgba(255,255,255,0.75)',
-    marginTop: 2,
-  },
+  totalVolumeLabel: { fontSize: FONTS.xs, color: COLORS.textSecondary },
+  totalVolumeValue: { fontSize: FONTS.xl, fontWeight: FONTS.bold, color: COLORS.primary, marginTop: 2 },
+  totalVolumeEmoji: { fontSize: 28 },
 
   sectionTitle: {
-    fontSize: FONTS.sm,
-    fontWeight: FONTS.semibold,
-    color: COLORS.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: SPACING.md,
+    fontSize: FONTS.base, fontWeight: FONTS.semibold,
+    color: COLORS.textSecondary, marginBottom: SPACING.sm, marginTop: SPACING.xs,
   },
 
-  statsGrid: {
-    flexDirection: 'row',
-    gap: SPACING.md,
-    marginBottom: SPACING.xl,
-  },
-
-  chartCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: RADIUS.lg,
-    paddingVertical: SPACING.lg,
-    paddingHorizontal: SPACING.base,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    marginBottom: SPACING.xl,
-    overflow: 'hidden',
+  smartCard: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
+    borderWidth: 1, borderColor: COLORS.warning + '50',
+    padding: SPACING.base, marginBottom: SPACING.xl,
     ...SHADOWS.card,
   },
+  smartCardHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: 4 },
+  smartCardTitle: { fontSize: FONTS.base, fontWeight: FONTS.bold, color: COLORS.textPrimary, flex: 1 },
+  smartCardSub: { fontSize: FONTS.xs, color: COLORS.textMuted, marginBottom: SPACING.md },
+  smartExerciseList: { gap: SPACING.xs },
+  smartExRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  smartExName: { fontSize: FONTS.sm, color: COLORS.textPrimary },
+  suggestedBadge: {
+    backgroundColor: COLORS.warning + '20', borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.sm, paddingVertical: 2,
+  },
+  suggestedText: { fontSize: FONTS.xs, color: COLORS.warning, fontWeight: FONTS.semibold },
+  startBtnRow: {
+    marginTop: SPACING.md, alignItems: 'flex-end',
+  },
+  startBtnText: { fontSize: FONTS.sm, color: COLORS.warning, fontWeight: FONTS.bold },
 
-  lastSessionCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.base,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    marginBottom: SPACING.xl,
+  templateCard: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
+    borderWidth: 1, borderColor: COLORS.cardBorder,
+    padding: SPACING.base, marginBottom: SPACING.md,
     ...SHADOWS.card,
   },
-  lastSessionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.md,
+  templateHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.sm },
+  templateTitle: { fontSize: FONTS.sm, fontWeight: FONTS.bold, color: COLORS.textPrimary, flex: 1 },
+  countBadge: {
+    backgroundColor: COLORS.primary + '25', borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.sm, paddingVertical: 2,
   },
-  lastSessionIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.primaryGlow,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  lastSessionInfo: { flex: 1 },
-  lastSessionDate: {
-    fontSize: FONTS.base,
-    fontWeight: FONTS.semibold,
-    color: COLORS.textPrimary,
-    textTransform: 'capitalize',
-  },
-  lastSessionVolume: {
-    fontSize: FONTS.sm,
-    color: COLORS.textSecondary,
-    marginTop: 2,
-  },
-  lastSessionNotes: {
-    fontSize: FONTS.sm,
-    color: COLORS.textSecondary,
-    marginTop: SPACING.md,
-    paddingTop: SPACING.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: COLORS.separator,
-  },
+  countBadgeText: { fontSize: FONTS.xs, color: COLORS.primary, fontWeight: FONTS.bold },
+  templateExList: { gap: 4, marginBottom: SPACING.sm },
+  templateExRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  templateExName: { fontSize: FONTS.sm, color: COLORS.textSecondary },
+  templateExWeight: { fontSize: FONTS.xs, fontWeight: FONTS.semibold },
+  templateLastDate: { fontSize: FONTS.xs, color: COLORS.textMuted, fontStyle: 'italic' },
 
-  recordsList: {
-    backgroundColor: COLORS.card,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    overflow: 'hidden',
-    marginBottom: SPACING.xl,
+  sessionCard: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.cardBorder,
+    padding: SPACING.base, marginBottom: SPACING.xl, gap: SPACING.xs,
+    ...SHADOWS.card,
   },
-  recordItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: SPACING.base,
-    gap: SPACING.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLORS.separator,
-  },
-  recordRank: {
-    width: 28,
-    height: 28,
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.primaryGlow,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  recordRankText: {
-    fontSize: FONTS.sm,
-    fontWeight: FONTS.bold,
-    color: COLORS.primary,
-  },
-  recordName: {
-    flex: 1,
-    fontSize: FONTS.base,
-    color: COLORS.textPrimary,
-    fontWeight: FONTS.medium,
-  },
-  recordWeight: {
-    fontSize: FONTS.base,
-    fontWeight: FONTS.bold,
-    color: COLORS.primary,
-  },
+  sessionCardRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  sessionDate: { fontSize: FONTS.sm, color: COLORS.textSecondary, textTransform: 'capitalize' },
+  sessionVolume: { fontSize: FONTS.sm, color: COLORS.textMuted, marginLeft: 26 },
 
-  bottomSpacer: { height: SPACING.xl },
+  recordsCard: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.cardBorder,
+    overflow: 'hidden', ...SHADOWS.card,
+  },
+  recordRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: SPACING.base },
+  recordBorder: { borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder },
+  recordName: { fontSize: FONTS.sm, color: COLORS.textPrimary, flex: 1 },
+  recordWeight: { fontSize: FONTS.sm, fontWeight: FONTS.bold, color: COLORS.warning },
 });
 
 const statStyles = StyleSheet.create({
   card: {
-    flex: 1,
-    backgroundColor: COLORS.card,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.base,
-    alignItems: 'flex-start',
-    gap: SPACING.sm,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    ...SHADOWS.card,
+    flex: 1, backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    padding: SPACING.md, alignItems: 'center', gap: 4,
+    borderWidth: 1, ...SHADOWS.card,
   },
-  value: {
-    fontSize: FONTS.xl,
-    fontWeight: FONTS.bold,
-    color: COLORS.textPrimary,
-    marginTop: 4,
-  },
-  label: {
-    fontSize: FONTS.xs,
-    color: COLORS.textSecondary,
-  },
+  value: { fontSize: FONTS.base, fontWeight: FONTS.bold, color: COLORS.textPrimary, textAlign: 'center' },
+  label: { fontSize: FONTS.xs, color: COLORS.textSecondary, textAlign: 'center' },
 });
 
 const emptyStyles = StyleSheet.create({
-  container: {
-    alignItems: 'center',
-    paddingVertical: SPACING.xxxl,
-    paddingHorizontal: SPACING.xl,
+  container: { alignItems: 'center', paddingVertical: 60, gap: SPACING.md },
+  emoji: { fontSize: 64 },
+  title: { fontSize: FONTS.xl, fontWeight: FONTS.bold, color: COLORS.textPrimary },
+  sub: { fontSize: FONTS.sm, color: COLORS.textSecondary, textAlign: 'center', paddingHorizontal: SPACING.xxl },
+  btn: {
+    backgroundColor: COLORS.primary, borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.xxl, paddingVertical: SPACING.md,
+    marginTop: SPACING.sm,
   },
-  emoji: { fontSize: 56, marginBottom: SPACING.lg },
-  title: {
-    fontSize: FONTS.xl,
-    fontWeight: FONTS.bold,
-    color: COLORS.textPrimary,
-    marginBottom: SPACING.sm,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: FONTS.base,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
+  btnText: { color: '#fff', fontWeight: FONTS.bold, fontSize: FONTS.base },
 });

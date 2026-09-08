@@ -1,5 +1,5 @@
 // ============================================================
-// Liste des exercices prédéfinis — organisés par catégorie
+// Liste des exercices — basée sur les séances réelles de l'utilisateur
 // ============================================================
 
 export interface ExerciseEntry {
@@ -8,129 +8,111 @@ export interface ExerciseEntry {
 }
 
 export const EXERCISE_CATEGORIES = [
-  'Abdominaux',
   'Biceps',
   'Triceps',
   'Poitrine',
-  'Épaules',
   'Dos',
+  'Épaules',
   'Jambes',
+  'Abdominaux',
   'Cardio',
 ] as const;
 
 export type ExerciseCategory = (typeof EXERCISE_CATEGORIES)[number];
 
-export const PREDEFINED_EXERCISES: ExerciseEntry[] = [
-  // ── Abdominaux ──────────────────────────────────────────────
-  { name: 'Abdominal crunch', category: 'Abdominaux' },
-  { name: 'Abdo poulie', category: 'Abdominaux' },
+/** Exercices au poids du corps — le poids = PDC de l'utilisateur */
+export const BODYWEIGHT_EXERCISES = ['Pompes', 'Traction', 'Pistol squat'];
 
+export const PREDEFINED_EXERCISES: ExerciseEntry[] = [
   // ── Biceps ──────────────────────────────────────────────────
-  { name: 'Arm curl', category: 'Biceps' },
-  { name: 'Avant bras haltère', category: 'Biceps' },
-  { name: 'Avant bras tirage', category: 'Biceps' },
-  { name: 'Avant bras tirage descendant', category: 'Biceps' },
-  { name: 'Barre EZ biceps', category: 'Biceps' },
-  { name: 'Biceps machine', category: 'Biceps' },
-  { name: 'Biceps curl haltère', category: 'Biceps' },
-  { name: 'Biceps curl marteau', category: 'Biceps' },
-  { name: 'Biceps curl poulie', category: 'Biceps' },
-  { name: 'Biceps curl tirage', category: 'Biceps' },
-  { name: 'Biceps poulie corde', category: 'Biceps' },
-  { name: 'Biceps poulie bras attaché', category: 'Biceps' },
-  { name: 'Biceps poulie barre T', category: 'Biceps' },
-  { name: 'Curl haltère', category: 'Biceps' },
-  { name: 'Curl marteau', category: 'Biceps' },
+  { name: 'Biceps curl',          category: 'Biceps' },
+  { name: 'Biceps poulie',        category: 'Biceps' },
+  { name: 'Curl haltère',         category: 'Biceps' },
+  { name: 'Curl barre EZ',        category: 'Biceps' },
+  { name: 'Avant-bras',           category: 'Biceps' },
 
   // ── Triceps ──────────────────────────────────────────────────
-  { name: 'Dips', category: 'Triceps' },
-  { name: 'Dips machine', category: 'Triceps' },
-  { name: 'Seated dip', category: 'Triceps' },
-  { name: 'Triceps poulie', category: 'Triceps' },
-  { name: 'Triceps poulie corde', category: 'Triceps' },
-  { name: 'Triceps poulie dos', category: 'Triceps' },
-  { name: 'Triceps poulie barre T', category: 'Triceps' },
-  { name: 'Triceps curl dos poulie', category: 'Triceps' },
-  { name: 'Triceps poulie avec banc incliné', category: 'Triceps' },
+  { name: 'Triceps poulie',       category: 'Triceps' },
+  { name: 'Dips machine',         category: 'Triceps' },
+  { name: 'Dips assistés',        category: 'Triceps' },
+  { name: 'Pompes',               category: 'Triceps' },
 
-  // ── Poitrine ──────────────────────────────────────────────────
-  { name: 'Chest press', category: 'Poitrine' },
-  { name: 'Converging chest press', category: 'Poitrine' },
-  { name: 'Développé couché', category: 'Poitrine' },
+  // ── Poitrine ─────────────────────────────────────────────────
+  { name: 'Pec fly',              category: 'Poitrine' },
+  { name: 'Pec fly incliné',      category: 'Poitrine' },
   { name: 'Développé couché Smith', category: 'Poitrine' },
-  { name: 'Développé couché incliné', category: 'Poitrine' },
-  { name: 'Supine press', category: 'Poitrine' },
-  { name: 'Pec fly', category: 'Poitrine' },
-  { name: 'Pec machine', category: 'Poitrine' },
-  { name: 'Push pec', category: 'Poitrine' },
-  { name: 'Pompes', category: 'Poitrine' },
-
-  // ── Épaules ──────────────────────────────────────────────────
-  { name: 'Développé épaule', category: 'Épaules' },
-  { name: 'Développé épaule Smith', category: 'Épaules' },
-  { name: 'Développé épaule incliné Smith', category: 'Épaules' },
-  { name: 'Shoulder press', category: 'Épaules' },
-  { name: 'Converge shoulder press', category: 'Épaules' },
-  { name: 'Épaule machine', category: 'Épaules' },
-  { name: 'Face pull', category: 'Épaules' },
-  { name: 'Rear delt', category: 'Épaules' },
+  { name: 'Chest press incliné',  category: 'Poitrine' },
 
   // ── Dos ──────────────────────────────────────────────────────
-  { name: 'Lat pulldown', category: 'Dos' },
-  { name: 'Diverging lat pull-down', category: 'Dos' },
-  { name: 'Tirage vertical', category: 'Dos' },
-  { name: 'Tirage horizontal machine', category: 'Dos' },
-  { name: 'Seated row', category: 'Dos' },
-  { name: 'Diverging seated row', category: 'Dos' },
-  { name: 'Traction', category: 'Dos' },
-  { name: 'Traction assistée', category: 'Dos' },
-  { name: 'Traction assistée large', category: 'Dos' },
-  { name: 'Traction machine', category: 'Dos' },
-  { name: 'Traction et dips assisté', category: 'Dos' },
-  { name: 'Lombaire', category: 'Dos' },
+  { name: 'Traction',             category: 'Dos' },
+  { name: 'Traction assistée',    category: 'Dos' },
+  { name: 'Lat pulldown',         category: 'Dos' },
+  { name: 'Seated row',           category: 'Dos' },
+  { name: 'Lombaires',            category: 'Dos' },
 
-  // ── Jambes ──────────────────────────────────────────────────
-  { name: 'Hack squat', category: 'Jambes' },
-  { name: 'Hip adduction', category: 'Jambes' },
-  { name: 'Leg curl', category: 'Jambes' },
-  { name: 'Seated leg curl', category: 'Jambes' },
-  { name: 'Prone leg curl', category: 'Jambes' },
-  { name: 'Leg extension', category: 'Jambes' },
-  { name: 'Leg press', category: 'Jambes' },
-  { name: 'Perfect squat', category: 'Jambes' },
-  { name: 'Pistol squat avec barre', category: 'Jambes' },
-  { name: 'Squat profond', category: 'Jambes' },
-  { name: 'Squat Smith', category: 'Jambes' },
+  // ── Épaules ──────────────────────────────────────────────────
+  { name: 'Shoulder press',       category: 'Épaules' },
+  { name: 'Shoulder press Smith', category: 'Épaules' },
+  { name: 'Rear delt',            category: 'Épaules' },
+  { name: 'Face pull',            category: 'Épaules' },
+
+  // ── Jambes ───────────────────────────────────────────────────
+  { name: 'Leg extension / curl', category: 'Jambes' },
+  { name: 'Hack squat',           category: 'Jambes' },
+  { name: 'Leg press',            category: 'Jambes' },
+  { name: 'Squat Smith',          category: 'Jambes' },
+  { name: 'Squat libre',          category: 'Jambes' },
+  { name: 'Hip adduction',        category: 'Jambes' },
+  { name: 'Pistol squat',         category: 'Jambes' },
   { name: 'Triceps sural (Mollets)', category: 'Jambes' },
 
-  // ── Cardio ──────────────────────────────────────────────────
-  { name: 'Marche inclinée', category: 'Cardio' },
-  { name: 'Rameur', category: 'Cardio' },
+  // ── Abdominaux ───────────────────────────────────────────────
+  { name: 'Abdominaux',           category: 'Abdominaux' },
+
+  // ── Cardio ───────────────────────────────────────────────────
+  { name: 'Rameur (Cardio)',      category: 'Cardio' },
+  { name: 'Marche inclinée (Cardio)', category: 'Cardio' },
 ];
 
-/** Recherche insensible à la casse et aux accents */
-export function searchExercises(query: string): ExerciseEntry[] {
-  if (!query.trim()) return PREDEFINED_EXERCISES;
-  const normalize = (s: string) =>
-    s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const q = normalize(query);
-  return PREDEFINED_EXERCISES.filter((e) => normalize(e.name).includes(q));
+// ── Helpers ──────────────────────────────────────────────────
+
+/** Normalise une chaîne pour la recherche insensible aux accents/casse */
+function normalize(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 }
 
-/** Retourne les exercices d'une catégorie */
-export function getByCategory(category: string): ExerciseEntry[] {
-  return PREDEFINED_EXERCISES.filter((e) => e.category === category);
+/** Recherche dans la liste prédéfinie + dans les noms connus */
+export function searchExercises(
+  query: string,
+  knownNames: string[] = []
+): ExerciseEntry[] {
+  const q = normalize(query.trim());
+  if (!q) return [];
+
+  const predefined = PREDEFINED_EXERCISES.filter((e) =>
+    normalize(e.name).includes(q)
+  );
+
+  const knownMatches: ExerciseEntry[] = knownNames
+    .filter((n) => normalize(n).includes(q) && !PREDEFINED_EXERCISES.some((e) => e.name === n))
+    .map((n) => ({ name: n, category: 'Personnalisé' }));
+
+  return [...predefined, ...knownMatches];
 }
 
-/**
- * Retourne la catégorie (groupe musculaire) d'un exercice à partir de son nom.
- * Fonctionne aussi pour les exercices personnalisés ajoutés par l'utilisateur
- * en cherchant une correspondance insensible à la casse/accents ; sinon 'Autre'.
- */
-export function getCategoryForExercise(name: string): string {
-  const normalize = (s: string) =>
-    s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-  const target = normalize(name);
-  const found = PREDEFINED_EXERCISES.find((e) => normalize(e.name) === target);
-  return found?.category ?? 'Autre';
+/** Retourne les exercices groupés par catégorie (pour SectionList) */
+export function getExercisesByCategory(): { title: string; data: ExerciseEntry[] }[] {
+  const map = new Map<string, ExerciseEntry[]>();
+  for (const cat of EXERCISE_CATEGORIES) {
+    map.set(cat, []);
+  }
+  for (const ex of PREDEFINED_EXERCISES) {
+    map.get(ex.category)?.push(ex);
+  }
+  return Array.from(map.entries())
+    .filter(([, items]) => items.length > 0)
+    .map(([title, data]) => ({ title, data }));
 }

@@ -82,6 +82,41 @@ function _initDatabase(db: SQLite.SQLiteDatabase): void {
     CREATE INDEX IF NOT EXISTS idx_sessions_date
       ON sessions(date DESC);
   `);
+
+  // user_version 0 → 1 : fusion "Biceps curl marteau" → "Curl haltère"
+  const versionRow = db.getFirstSync<{ user_version: number }>(
+    'PRAGMA user_version;'
+  );
+  const currentVersion = versionRow?.user_version ?? 0;
+
+  if (currentVersion < 1) {
+    db.runSync(
+      `UPDATE exercises SET name = 'Curl haltère' WHERE name = 'Biceps curl marteau'`
+    );
+    db.runSync(
+      `UPDATE OR IGNORE exercise_names SET name = 'Curl haltère' WHERE name = 'Biceps curl marteau'`
+    );
+    db.runSync(`DELETE FROM exercise_names WHERE name = 'Biceps curl marteau'`);
+    db.execSync('PRAGMA user_version = 1;');
+  }
+
+  // user_version 1 → 2 : table réglages + exercices personnalisés
+  if (currentVersion < 2) {
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS custom_exercises (
+        name       TEXT PRIMARY KEY,
+        category   TEXT NOT NULL DEFAULT 'Autre',
+        created_at TEXT NOT NULL
+      );
+    `);
+    db.execSync('PRAGMA user_version = 2;');
+  }
 }
 
 // ============================================================

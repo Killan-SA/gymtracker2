@@ -1,6 +1,7 @@
 import dayjs from 'dayjs';
 import { getDb, generateId, nowISO } from './database';
 import { PREDEFINED_EXERCISES } from '../constants/exercises';
+import type { ExerciseEntry } from '../constants/exercises';
 import type {
   Session,
   Exercise,
@@ -236,19 +237,29 @@ export function getSessionVolume(sessionId: string): number {
   return result?.total ?? 0;
 }
 
-/** Volume total de la semaine courante */
+/** Volume total (poids × reps) sur les 7 derniers jours */
 export function getWeeklyVolume(): number {
   const db = getDb();
-  const weekStart = dayjs().startOf('week').toISOString();
+  const sevenDaysAgo = dayjs().subtract(7, 'day').toISOString();
   const result = db.getFirstSync<{ total: number | null }>(
-    `SELECT SUM(s.weight * s.reps) as total
+    `SELECT COALESCE(SUM(s.weight * s.reps), 0) as total
      FROM sets s
      JOIN exercises e ON s.exercise_id = e.id
      JOIN sessions sess ON e.session_id = sess.id
-     WHERE sess.date >= ?`,
-    [weekStart]
+     WHERE sess.date >= ? AND s.weight > 0 AND s.reps > 0`,
+    [sevenDaysAgo]
   );
-  return result?.total ?? 0;
+  return Math.round(result?.total ?? 0);
+}
+
+/** Volume total de toute l'histoire (all time) */
+export function getTotalVolumeAllTime(): number {
+  const db = getDb();
+  const result = db.getFirstSync<{ total: number | null }>(
+    `SELECT COALESCE(SUM(s.weight * s.reps), 0) as total
+     FROM sets s WHERE s.weight > 0 AND s.reps > 0`
+  );
+  return Math.round(result?.total ?? 0);
 }
 
 /** Nombre de séances du mois courant */
@@ -269,6 +280,7 @@ export function getPersonalRecords(): { name: string; weight: number }[] {
     `SELECT e.name, MAX(s.weight) as weight
      FROM sets s
      JOIN exercises e ON s.exercise_id = e.id
+     WHERE s.weight > 0
      GROUP BY e.name
      ORDER BY weight DESC
      LIMIT 5`
@@ -509,4 +521,186 @@ export function getDashboardStats(): DashboardStats {
     totalSessionCount: countResult?.count ?? 0,
     personalRecords: getPersonalRecords(),
   };
+}
+
+// ============================================================
+// TEMPLATES DE SÉANCE
+// ============================================================
+
+export interface ExerciseSuggestion {
+  name: string;
+  lastWeight: number;
+  lastReps: number;
+  suggestedWeight: number;
+  plateauDetected: boolean;
+  category: string;
+}
+
+export interface SessionTemplate {
+  exercises: ExerciseSuggestion[];
+  count: number;
+  lastDate: string;
+}
+
+/** Analyse les 60 dernières séances → retourne les 3 patterns les plus fréquents (≥2 fois) */
+export function getFrequentSessionTemplates(): SessionTemplate[] {
+  const db = getDb();
+  const sessions = db.getAllSync<{ sessionId: string; date: string }>(
+    'SELECT id as sessionId, date FROM sessions ORDER BY date DESC LIMIT 60'
+  );
+
+  const sigMap = new Map<string, { exercises: string[]; count: number; lastDate: string }>();
+  for (const sess of sessions) {
+    const exRows = db.getAllSync<{ name: string }>(
+      'SELECT name FROM exercises WHERE session_id = ? ORDER BY order_index',
+      [sess.sessionId]
+    );
+    const names = exRows.map((e) => e.name);
+    if (names.length === 0) continue;
+    const sig = names.join('|||');
+    if (sigMap.has(sig)) {
+      sigMap.get(sig)!.count++;
+    } else {
+      sigMap.set(sig, { exercises: names, count: 1, lastDate: sess.date });
+    }
+  }
+
+  const top3 = [...sigMap.entries()]
+    .filter(([, v]) => v.count >= 2)
+    .sort(([, a], [, b]) => b.count - a.count)
+    .slice(0, 3);
+
+  return top3.map(([, template]) => ({
+    exercises: template.exercises.map((name) => {
+      const lastSet = db.getFirstSync<{ weight: number; reps: number } | null>(
+        `SELECT s.weight, s.reps
+         FROM sets s
+         JOIN exercises e ON s.exercise_id = e.id
+         JOIN sessions sess ON e.session_id = sess.id
+         WHERE e.name = ? AND s.weight > 0
+         ORDER BY sess.date DESC, s.weight DESC
+         LIMIT 1`,
+        [name]
+      );
+      const hist = getWeightHistory(name);
+      const plateau = detectPlateau(hist);
+      const lw = lastSet?.weight ?? 0;
+      const entry = PREDEFINED_EXERCISES.find(
+        (pe) => pe.name.toLowerCase() === name.toLowerCase()
+      );
+      return {
+        name,
+        lastWeight: lw,
+        lastReps: lastSet?.reps ?? 0,
+        suggestedWeight: lw > 0 ? Math.round((plateau ? lw : lw + 2.5) * 10) / 10 : 0,
+        plateauDetected: plateau,
+        category: entry?.category ?? 'Autre',
+      } satisfies ExerciseSuggestion;
+    }),
+    count: template.count,
+    lastDate: template.lastDate,
+  }));
+}
+
+/** Séance intelligente : exercices avec plateau → progression conseillée */
+export function getSmartSessionRecommendation(): SessionTemplate | null {
+  const db = getDb();
+  const since = dayjs().subtract(60, 'day').toISOString();
+
+  const practiced = db.getAllSync<{ name: string }>(
+    `SELECT DISTINCT e.name
+     FROM exercises e
+     JOIN sessions sess ON e.session_id = sess.id
+     WHERE sess.date >= ?`,
+    [since]
+  );
+
+  const plateauExs: ExerciseSuggestion[] = [];
+  for (const { name } of practiced) {
+    const hist = getWeightHistory(name);
+    if (hist.length < 3 || !detectPlateau(hist)) continue;
+    const lastSet = db.getFirstSync<{ weight: number; reps: number } | null>(
+      `SELECT s.weight, s.reps
+       FROM sets s
+       JOIN exercises e ON s.exercise_id = e.id
+       JOIN sessions sess ON e.session_id = sess.id
+       WHERE e.name = ? AND s.weight > 0
+       ORDER BY sess.date DESC, s.weight DESC LIMIT 1`,
+      [name]
+    );
+    const lw = lastSet?.weight ?? 0;
+    const entry = PREDEFINED_EXERCISES.find(
+      (pe) => pe.name.toLowerCase() === name.toLowerCase()
+    );
+    plateauExs.push({
+      name,
+      lastWeight: lw,
+      lastReps: lastSet?.reps ?? 0,
+      suggestedWeight: lw > 0 ? Math.round((lw + 2.5) * 10) / 10 : 0,
+      plateauDetected: true,
+      category: entry?.category ?? 'Autre',
+    });
+  }
+
+  if (plateauExs.length === 0) return null;
+  return { exercises: plateauExs.slice(0, 6), count: 0, lastDate: '' };
+}
+
+/** Crée une séance depuis un template et navigue vers elle */
+export function createSessionFromTemplate(template: SessionTemplate): string {
+  const session = createSession();
+  for (const ex of template.exercises) {
+    addExerciseToSession(session.id, ex.name);
+  }
+  return session.id;
+}
+
+// ============================================================
+// RÉGLAGES UTILISATEUR
+// ============================================================
+
+/** Récupère le poids corporel enregistré (kg). Retourne 0 si non défini. */
+export function getUserBodyweight(): number {
+  const db = getDb();
+  const row = db.getFirstSync<{ value: string } | null>(
+    "SELECT value FROM app_settings WHERE key = 'bodyweight'"
+  );
+  return row ? (parseFloat(row.value) || 0) : 0;
+}
+
+/** Enregistre le poids corporel de l'utilisateur (kg). */
+export function setUserBodyweight(kg: number): void {
+  const db = getDb();
+  db.runSync(
+    "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('bodyweight', ?)",
+    [kg.toString()]
+  );
+}
+
+// ============================================================
+// EXERCICES PERSONNALISÉS
+// ============================================================
+
+/** Retourne tous les exercices créés manuellement par l'utilisateur. */
+export function getCustomExercises(): ExerciseEntry[] {
+  const db = getDb();
+  return db.getAllSync<ExerciseEntry>(
+    'SELECT name, category FROM custom_exercises ORDER BY name'
+  );
+}
+
+/** Ajoute un exercice personnalisé persistant. Ignoré si le nom existe déjà. */
+export function addCustomExercise(name: string, category: string): void {
+  const db = getDb();
+  db.runSync(
+    'INSERT OR IGNORE INTO custom_exercises (name, category, created_at) VALUES (?, ?, ?)',
+    [name.trim(), category, nowISO()]
+  );
+  // Aussi dans exercise_names pour l'autocomplete
+  db.runSync(
+    `INSERT INTO exercise_names (name, last_used, use_count)
+     VALUES (?, ?, 1)
+     ON CONFLICT(name) DO UPDATE SET use_count = use_count + 1, last_used = excluded.last_used`,
+    [name.trim(), nowISO()]
+  );
 }

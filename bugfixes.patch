@@ -1,0 +1,185 @@
+diff --git a/.gitignore b/.gitignore
+index d914c32..fc104d9 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -39,3 +39,8 @@ yarn-error.*
+ # generated native folders
+ /ios
+ /android
++
++# patch artifacts (à ne jamais committer)
++*.patch
++*.rej
++*.orig
+diff --git a/app/(tabs)/index.tsx b/app/(tabs)/index.tsx
+index 30c27b1..727716b 100644
+--- a/app/(tabs)/index.tsx
++++ b/app/(tabs)/index.tsx
+@@ -44,6 +44,7 @@ export default function DashboardScreen() {
+     monthlySessionCount: 0,
+     totalSessionCount: 0,
+     personalRecords: [],
++    volumeByCategory: [],
+   });
+   const [lastSessionVolume, setLastSessionVolume] = useState(0);
+ 
+@@ -180,6 +181,36 @@ export default function DashboardScreen() {
+         )}
+ 
+ 
++        {/* Volume par groupe musculaire */}
++        {stats.volumeByCategory.length > 0 && (
++          <>
++            <Text style={styles.sectionTitle}>Volume par muscle (30j)</Text>
++            <View style={styles.chartCard}>
++              <BarChart
++                data={stats.volumeByCategory.map((c, i) => ({
++                  value: c.volume,
++                  label: c.category,
++                  frontColor: BAR_COLORS[i % BAR_COLORS.length],
++                }))}
++                width={Dimensions.get('window').width - SPACING.base * 2 - SPACING.base * 2 - 20}
++                height={180}
++                barWidth={24}
++                spacing={22}
++                roundedTop
++                roundedBottom
++                yAxisTextStyle={{ color: COLORS.textMuted, fontSize: FONTS.xs }}
++                xAxisLabelTextStyle={{ color: COLORS.textMuted, fontSize: FONTS.xs }}
++                yAxisColor={COLORS.cardBorder}
++                xAxisColor={COLORS.cardBorder}
++                rulesColor={COLORS.cardBorder}
++                rulesType="solid"
++                noOfSections={4}
++                yAxisLabelSuffix=" kg"
++              />
++            </View>
++          </>
++        )}
++
+         {/* Records personnels */}
+         {stats.personalRecords.length > 0 && (
+           <>
+diff --git a/app/session/[id].tsx b/app/session/[id].tsx
+index 1efccbf..645bd0e 100644
+--- a/app/session/[id].tsx
++++ b/app/session/[id].tsx
+@@ -77,7 +77,7 @@ export default function SessionScreen() {
+ 
+   const handleAddSet = (exerciseId: string) => {
+     const last = getLastSetForExercise(exerciseId);
+-    addSet(exerciseId, last?.weight ?? 0, last?.reps ?? 0);
++    addSet(exerciseId, last?.weight ?? 0, last?.reps ?? 0, null);
+     loadSession();
+   };
+ 
+@@ -319,12 +319,15 @@ function SetRow({ set, onDelete, onReload }: {
+ }) {
+   const [weight, setWeight] = useState(set.weight > 0 ? set.weight.toString() : '');
+   const [reps, setReps] = useState(set.reps > 0 ? set.reps.toString() : '');
++  const [rpe, setRpe] = useState(set.rpe != null ? set.rpe.toString() : '');
+ 
+   const handleBlur = () => {
+     const w = parseFloat(weight) || 0;
+     const r = parseInt(reps) || 0;
+-    if (w !== set.weight || r !== set.reps) {
+-      updateSet(set.id, w, r);
++    const rawRpe = parseFloat(rpe);
++    const clampedRpe = isNaN(rawRpe) ? null : Math.min(10, Math.max(1, rawRpe));
++    if (w !== set.weight || r !== set.reps || clampedRpe !== set.rpe) {
++      updateSet(set.id, w, r, clampedRpe);
+       onReload();
+     }
+   };
+@@ -354,6 +357,17 @@ function SetRow({ set, onDelete, onReload }: {
+         placeholder="0"
+         placeholderTextColor={COLORS.textMuted}
+       />
++      <TextInput
++        style={setRowStyles.rpeInput}
++        value={rpe}
++        onChangeText={setRpe}
++        onBlur={handleBlur}
++        keyboardType="number-pad"
++        selectTextOnFocus
++        placeholder="—"
++        placeholderTextColor={COLORS.textMuted}
++        maxLength={2}
++      />
+       <TouchableOpacity onPress={onDelete} style={setRowStyles.deleteButton}>
+         <Ionicons name="close-circle" size={22} color={COLORS.textMuted} />
+       </TouchableOpacity>
+diff --git a/lib/queries.ts b/lib/queries.ts
+index 44dbee4..f139e3e 100644
+--- a/lib/queries.ts
++++ b/lib/queries.ts
+@@ -168,6 +168,7 @@ export function addSet(
+   exerciseId: string,
+   weight: number,
+   reps: number,
++  rpe?: number | null,
+   notes?: string
+ ): Set {
+   const db = getDb();
+@@ -184,23 +185,29 @@ export function addSet(
+     set_number: setNumber,
+     weight,
+     reps,
++    rpe: rpe ?? null,
+     notes: notes ?? null,
+   };
+ 
+   db.runSync(
+-    'INSERT INTO sets (id, exercise_id, set_number, weight, reps, notes) VALUES (?, ?, ?, ?, ?, ?)',
+-    [set.id, set.exercise_id, set.set_number, set.weight, set.reps, set.notes]
++    'INSERT INTO sets (id, exercise_id, set_number, weight, reps, rpe, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
++    [set.id, set.exercise_id, set.set_number, set.weight, set.reps, set.rpe, set.notes]
+   );
+ 
+   return set;
+ }
+ 
+ /** Met à jour une série existante */
+-export function updateSet(setId: string, weight: number, reps: number): void {
++export function updateSet(
++  setId: string,
++  weight: number,
++  reps: number,
++  rpe?: number | null
++): void {
+   const db = getDb();
+   db.runSync(
+-    'UPDATE sets SET weight = ?, reps = ? WHERE id = ?',
+-    [weight, reps, setId]
++    'UPDATE sets SET weight = ?, reps = ?, rpe = ? WHERE id = ?',
++    [weight, reps, rpe ?? null, setId]
+   );
+ }
+ 
+@@ -508,5 +515,6 @@ export function getDashboardStats(): DashboardStats {
+     monthlySessionCount: getMonthlySessionCount(),
+     totalSessionCount: countResult?.count ?? 0,
+     personalRecords: getPersonalRecords(),
++    volumeByCategory: getVolumeByMuscleGroup(30),
+   };
+ }
+diff --git a/types/index.ts b/types/index.ts
+index 7743b6d..63b7c28 100644
+--- a/types/index.ts
++++ b/types/index.ts
+@@ -26,6 +26,7 @@ export interface Set {
+   set_number: number;
+   weight: number;         // En kg
+   reps: number;
++  rpe: number | null;     // Difficulté ressentie (RPE/RIR), 1-10
+   notes: string | null;
+ }
+ 
+@@ -85,6 +86,7 @@ export interface DashboardStats {
+   monthlySessionCount: number;    // Séances ce mois
+   totalSessionCount: number;      // Total des séances
+   personalRecords: { name: string; weight: number }[];
++  volumeByCategory: MuscleGroupVolume[]; // Volume par groupe musculaire (30 derniers jours)
+ }
+ 
+ /** Volume par groupe musculaire */

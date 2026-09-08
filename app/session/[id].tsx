@@ -10,6 +10,7 @@ import {
   Platform,
   Modal,
   SectionList,
+  ScrollView,
 } from 'react-native';
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -23,13 +24,18 @@ import {
   getExerciseNames,
   getLastSetForExercise,
   updateSet,
+  getUserBodyweight,
+  getCustomExercises,
+  addCustomExercise,
 } from '../../lib/queries';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
 import {
   PREDEFINED_EXERCISES,
   EXERCISE_CATEGORIES,
+  BODYWEIGHT_EXERCISES,
   searchExercises,
 } from '../../constants/exercises';
+import type { ExerciseEntry } from '../../constants/exercises';
 import type { ExerciseWithSets, Set } from '../../types';
 
 export default function SessionScreen() {
@@ -38,47 +44,94 @@ export default function SessionScreen() {
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [recentNames, setRecentNames] = useState<string[]>([]);
+  const [customExercises, setCustomExercises] = useState<ExerciseEntry[]>([]);
+  // Créer un exercice custom
+  const [showCreateExercise, setShowCreateExercise] = useState(false);
+  const [newExName, setNewExName] = useState('');
+  const [newExCat, setNewExCat] = useState<string>('Biceps');
 
   const loadSession = useCallback(() => {
     if (!id) return;
     const session = getSessionWithExercises(id);
     if (session) setExercises(session.exercises);
     setRecentNames(getExerciseNames().slice(0, 8));
+    setCustomExercises(getCustomExercises());
   }, [id]);
 
   useEffect(() => { loadSession(); }, [loadSession]);
 
-  // Résultats de recherche
+  // Résultats de recherche (prédéfinis + custom)
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return [];
-    return searchExercises(searchQuery);
-  }, [searchQuery]);
+    const base = searchExercises(searchQuery);
+    const customMatches = customExercises.filter(
+      (ce) =>
+        ce.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
+        !base.some((b) => b.name === ce.name)
+    );
+    return [...base, ...customMatches];
+  }, [searchQuery, customExercises]);
 
-  // Sections pour la SectionList (quand pas de recherche)
+  // Sections pour la SectionList (prédéfinis + custom fusionnés)
   const sections = useMemo(() => {
-    const s = [];
+    const s: { title: string; data: ExerciseEntry[] }[] = [];
     if (recentNames.length > 0) {
-      s.push({ title: 'Récents', data: recentNames.map(n => ({ name: n, category: 'Récents' })) });
+      s.push({ title: 'Récents', data: recentNames.map((n) => ({ name: n, category: 'Récents' })) });
     }
     for (const cat of EXERCISE_CATEGORIES) {
-      const items = PREDEFINED_EXERCISES.filter(e => e.category === cat);
+      const predefined = PREDEFINED_EXERCISES.filter((e) => e.category === cat);
+      const custom = customExercises.filter((e) => e.category === cat);
+      const items = [...predefined, ...custom];
       if (items.length > 0) s.push({ title: cat, data: items });
     }
+    const autre = customExercises.filter((e) => !EXERCISE_CATEGORIES.includes(e.category as any));
+    if (autre.length > 0) s.push({ title: 'Mes exercices', data: autre });
     return s;
-  }, [recentNames]);
+  }, [recentNames, customExercises]);
 
   const handleSelectExercise = (name: string) => {
     if (!id || !name.trim()) return;
     addExerciseToSession(id, name.trim());
     setSearchQuery('');
     setShowAddExercise(false);
+    setShowCreateExercise(false);
     loadSession();
   };
 
-  const handleAddSet = (exerciseId: string) => {
+  const handleAddSet = (exerciseId: string, exerciseName: string) => {
     const last = getLastSetForExercise(exerciseId);
-    addSet(exerciseId, last?.weight ?? 0, last?.reps ?? 0);
+    let defaultWeight = last?.weight ?? 0;
+
+    // Poids du corps pour Pompes / Traction : auto-fill si pas encore de série
+    if (defaultWeight === 0 && BODYWEIGHT_EXERCISES.includes(exerciseName)) {
+      const bw = getUserBodyweight();
+      if (bw > 0) {
+        defaultWeight = bw;
+      } else {
+        // Demander le poids corporel si non configuré
+        Alert.alert(
+          '⚖️ Exercice au poids du corps',
+          'Pompes et Tractions utilisent ton poids corporel comme charge. Configure-le dans Réglages → Mon profil.',
+          [{ text: 'OK' }]
+        );
+      }
+    }
+
+    addSet(exerciseId, defaultWeight, last?.reps ?? 0);
     loadSession();
+  };
+
+  const handleCreateExercise = () => {
+    if (!newExName.trim()) {
+      Alert.alert('Nom requis', 'Entre un nom pour l\'exercice.');
+      return;
+    }
+    addCustomExercise(newExName.trim(), newExCat);
+    const name = newExName.trim();
+    setNewExName('');
+    setShowCreateExercise(false);
+    // Ajoute directement à la séance
+    handleSelectExercise(name);
   };
 
   const handleDeleteSet = (setId: string) => {
@@ -123,7 +176,7 @@ export default function SessionScreen() {
         renderItem={({ item }) => (
           <ExerciseCard
             exercise={item}
-            onAddSet={() => handleAddSet(item.id)}
+            onAddSet={() => handleAddSet(item.id, item.name)}
             onDeleteSet={handleDeleteSet}
             onDeleteExercise={() => handleDeleteExercise(item.id, item.name)}
             onReload={loadSession}
@@ -185,8 +238,64 @@ export default function SessionScreen() {
             />
           </View>
 
-          {/* Résultats de recherche */}
-          {searchQuery.trim().length > 0 ? (
+          {/* Liste par catégories ou formulaire création */}
+          {showCreateExercise ? (
+            /* ── Formulaire créer exercice ── */
+            <ScrollView
+              contentContainerStyle={pickerStyles.createForm}
+              keyboardShouldPersistTaps="handled"
+            >
+              <TouchableOpacity
+                style={pickerStyles.backBtn}
+                onPress={() => { setShowCreateExercise(false); setNewExName(''); }}
+              >
+                <Ionicons name="arrow-back" size={18} color={COLORS.primary} />
+                <Text style={pickerStyles.backBtnText}>Retour à la liste</Text>
+              </TouchableOpacity>
+
+              <Text style={pickerStyles.createLabel}>Nom de la machine / exercice</Text>
+              <TextInput
+                style={pickerStyles.createInput}
+                placeholder="Ex : Leg curl couché"
+                placeholderTextColor={COLORS.textMuted}
+                value={newExName}
+                onChangeText={setNewExName}
+                autoFocus
+                autoCorrect={false}
+              />
+
+              <Text style={pickerStyles.createLabel}>Catégorie</Text>
+              <View style={pickerStyles.catGrid}>
+                {([...EXERCISE_CATEGORIES, 'Autre'] as string[]).map((cat) => (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[
+                      pickerStyles.catChip,
+                      newExCat === cat && pickerStyles.catChipActive,
+                    ]}
+                    onPress={() => setNewExCat(cat)}
+                  >
+                    <Text style={[
+                      pickerStyles.catChipText,
+                      newExCat === cat && pickerStyles.catChipTextActive,
+                    ]}>
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity
+                style={pickerStyles.createSaveBtn}
+                onPress={handleCreateExercise}
+              >
+                <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                <Text style={pickerStyles.createSaveBtnText}>
+                  Créer et ajouter à la séance
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          ) : searchQuery.trim().length > 0 ? (
             <FlatList
               data={searchResults}
               keyExtractor={(item) => item.name}
@@ -244,6 +353,15 @@ export default function SessionScreen() {
                   <Ionicons name="add" size={20} color={COLORS.primary} />
                 </TouchableOpacity>
               )}
+              ListFooterComponent={
+                <TouchableOpacity
+                  style={pickerStyles.createExBtn}
+                  onPress={() => setShowCreateExercise(true)}
+                >
+                  <Ionicons name="add-circle-outline" size={20} color={COLORS.primary} />
+                  <Text style={pickerStyles.createExBtnText}>Créer un exercice / nouvelle machine</Text>
+                </TouchableOpacity>
+              }
             />
           )}
         </View>
@@ -503,6 +621,44 @@ const pickerStyles = StyleSheet.create({
     borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.primary,
   },
   customBtnText: { fontSize: FONTS.base, color: COLORS.primary, fontWeight: FONTS.semibold },
+
+  // Bouton "Créer un exercice" en pied de liste
+  createExBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: SPACING.sm, margin: SPACING.base, padding: SPACING.md,
+    borderRadius: RADIUS.lg, borderWidth: 1.5, borderStyle: 'dashed',
+    borderColor: COLORS.primary, backgroundColor: COLORS.primaryGlow,
+  },
+  createExBtnText: { fontSize: FONTS.sm, color: COLORS.primary, fontWeight: FONTS.semibold },
+
+  // Formulaire création
+  createForm: { padding: SPACING.base, gap: SPACING.lg },
+  backBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.sm },
+  backBtnText: { fontSize: FONTS.sm, color: COLORS.primary },
+  createLabel: {
+    fontSize: FONTS.sm, fontWeight: FONTS.semibold,
+    color: COLORS.textSecondary, marginBottom: SPACING.xs,
+  },
+  createInput: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.cardBorder,
+    color: COLORS.textPrimary, fontSize: FONTS.base,
+    paddingHorizontal: SPACING.base, paddingVertical: SPACING.md,
+  },
+  catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
+  catChip: {
+    borderRadius: RADIUS.full, paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs,
+    borderWidth: 1, borderColor: COLORS.cardBorder, backgroundColor: COLORS.card,
+  },
+  catChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  catChipText: { fontSize: FONTS.sm, color: COLORS.textSecondary },
+  catChipTextActive: { color: '#fff', fontWeight: FONTS.bold },
+  createSaveBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: SPACING.sm, backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.lg, padding: SPACING.base, marginTop: SPACING.md,
+  },
+  createSaveBtnText: { fontSize: FONTS.base, fontWeight: FONTS.bold, color: '#fff' },
 });
 
 const emptyStyles = StyleSheet.create({
