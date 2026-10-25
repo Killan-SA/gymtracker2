@@ -17,6 +17,8 @@ import {
   deleteSession,
   getSessionVolume,
 } from '../../lib/queries';
+import { useSettingsStore } from '../../lib/settingsStore';
+import { fromKg, unitLabel } from '../../lib/units';
 import { COLORS, FONTS, SPACING, RADIUS } from '../../constants/theme';
 import type { Session } from '../../types';
 
@@ -167,6 +169,7 @@ function SessionCard({
 }) {
   const date = dayjs(session.date);
   const isToday = date.isSame(dayjs(), 'day');
+  const useKg = useSettingsStore((s) => s.useKg);
 
   return (
     <TouchableOpacity
@@ -189,7 +192,7 @@ function SessionCard({
           <Text style={styles.cardTime}>{date.format('HH[h]mm')}</Text>
         </View>
         <Text style={styles.cardVolume}>
-          Volume : {Math.round(session.volume).toLocaleString('fr')} kg
+          Volume : {Math.round(fromKg(session.volume, useKg)).toLocaleString('fr')} {unitLabel(useKg)}
         </Text>
         {session.notes && (
           <Text style={styles.cardNotes} numberOfLines={1}>

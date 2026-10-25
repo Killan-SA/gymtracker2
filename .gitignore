@@ -39,3 +39,8 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# patch artifacts (à ne jamais committer)
+*.patch
+*.rej
+*.orig

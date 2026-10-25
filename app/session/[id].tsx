@@ -11,8 +11,10 @@ import {
   Modal,
   SectionList,
   ScrollView,
+  Vibration,
+  Animated,
 } from 'react-native';
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -27,6 +29,7 @@ import {
   getUserBodyweight,
   getCustomExercises,
   addCustomExercise,
+  getExercisePersonalRecord,
 } from '../../lib/queries';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
 import {
@@ -45,10 +48,46 @@ export default function SessionScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [recentNames, setRecentNames] = useState<string[]>([]);
   const [customExercises, setCustomExercises] = useState<ExerciseEntry[]>([]);
+  const [prCelebration, setPrCelebration] = useState<{ exercise: string; weight: number } | null>(null);
   // Créer un exercice custom
   const [showCreateExercise, setShowCreateExercise] = useState(false);
   const [newExName, setNewExName] = useState('');
   const [newExCat, setNewExCat] = useState<string>('Biceps');
+
+  // ── Chrono de repos entre les séries ──
+  const [restDuration, setRestDuration] = useState(90); // durée par défaut, mémorisée pour la séance
+  const [restSecondsLeft, setRestSecondsLeft] = useState<number | null>(null);
+  const restIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startRestTimer = useCallback((duration: number) => {
+    if (restIntervalRef.current) clearInterval(restIntervalRef.current);
+    setRestSecondsLeft(duration);
+    restIntervalRef.current = setInterval(() => {
+      setRestSecondsLeft((prev) => {
+        if (prev === null) return null;
+        if (prev <= 1) {
+          if (restIntervalRef.current) clearInterval(restIntervalRef.current);
+          restIntervalRef.current = null;
+          // Vibration de fin (pattern court-court-long, perceptible sans regarder l'écran)
+          Vibration.vibrate([0, 200, 100, 200, 100, 400]);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
+  const stopRestTimer = useCallback(() => {
+    if (restIntervalRef.current) clearInterval(restIntervalRef.current);
+    restIntervalRef.current = null;
+    setRestSecondsLeft(null);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (restIntervalRef.current) clearInterval(restIntervalRef.current);
+    };
+  }, []);
 
   const loadSession = useCallback(() => {
     if (!id) return;
@@ -117,8 +156,9 @@ export default function SessionScreen() {
       }
     }
 
-    addSet(exerciseId, defaultWeight, last?.reps ?? 0);
+    addSet(exerciseId, defaultWeight, last?.reps ?? 0, null);
     loadSession();
+    startRestTimer(restDuration);
   };
 
   const handleCreateExercise = () => {
@@ -133,6 +173,11 @@ export default function SessionScreen() {
     // Ajoute directement à la séance
     handleSelectExercise(name);
   };
+
+  const handleNewRecord = useCallback((exerciseName: string, weight: number) => {
+    Vibration.vibrate([0, 100, 50, 100, 50, 200]);
+    setPrCelebration({ exercise: exerciseName, weight });
+  }, []);
 
   const handleDeleteSet = (setId: string) => {
     Alert.alert('Supprimer', 'Supprimer cette série ?', [
@@ -166,6 +211,12 @@ export default function SessionScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
+      {prCelebration && (
+        <PRCelebrationBanner
+          data={prCelebration}
+          onDone={() => setPrCelebration(null)}
+        />
+      )}
       <FlatList
         data={exercises}
         keyExtractor={(item) => item.id}
@@ -180,6 +231,7 @@ export default function SessionScreen() {
             onDeleteSet={handleDeleteSet}
             onDeleteExercise={() => handleDeleteExercise(item.id, item.name)}
             onReload={loadSession}
+            onNewRecord={handleNewRecord}
           />
         )}
         ListHeaderComponent={exercises.length === 0 ? <EmptySession /> : null}
@@ -204,6 +256,17 @@ export default function SessionScreen() {
           </View>
         }
       />
+
+      {/* ── Chrono de repos ─────────────────────────────────── */}
+      {restSecondsLeft !== null && (
+        <RestTimerBar
+          secondsLeft={restSecondsLeft}
+          totalSeconds={restDuration}
+          onSkip={stopRestTimer}
+          onSelectDuration={(d) => { setRestDuration(d); startRestTimer(d); }}
+          onAddSeconds={(s) => setRestSecondsLeft((prev) => (prev !== null ? prev + s : prev))}
+        />
+      )}
 
       {/* ── Modal sélecteur d'exercice ─────────────────────── */}
       <Modal
@@ -380,13 +443,18 @@ function ExerciseCard({
   onDeleteSet,
   onDeleteExercise,
   onReload,
+  onNewRecord,
 }: {
   exercise: ExerciseWithSets;
   onAddSet: () => void;
   onDeleteSet: (id: string) => void;
   onDeleteExercise: () => void;
   onReload: () => void;
+  onNewRecord: (exerciseName: string, weight: number) => void;
 }) {
+  // Record connu AVANT toute modification dans cette carte (recalculé à chaque reload)
+  const recordSoFar = getExercisePersonalRecord(exercise.name);
+
   return (
     <View style={cardStyles.container}>
       <View style={cardStyles.header}>
@@ -409,8 +477,10 @@ function ExerciseCard({
         <SetRow
           key={set.id}
           set={set}
+          personalRecord={recordSoFar}
           onDelete={() => onDeleteSet(set.id)}
           onReload={onReload}
+          onNewRecord={(weight) => onNewRecord(exercise.name, weight)}
         />
       ))}
 
@@ -430,19 +500,28 @@ function ExerciseCard({
 // SetRow
 // ============================================================
 
-function SetRow({ set, onDelete, onReload }: {
+function SetRow({ set, personalRecord, onDelete, onReload, onNewRecord }: {
   set: Set;
+  personalRecord: number;
   onDelete: () => void;
   onReload: () => void;
+  onNewRecord: (weight: number) => void;
 }) {
   const [weight, setWeight] = useState(set.weight > 0 ? set.weight.toString() : '');
   const [reps, setReps] = useState(set.reps > 0 ? set.reps.toString() : '');
+  const [rpe, setRpe] = useState(set.rpe != null ? set.rpe.toString() : '');
 
   const handleBlur = () => {
     const w = parseFloat(weight) || 0;
     const r = parseInt(reps) || 0;
-    if (w !== set.weight || r !== set.reps) {
-      updateSet(set.id, w, r);
+    const rawRpe = parseFloat(rpe);
+    const clampedRpe = isNaN(rawRpe) ? null : Math.min(10, Math.max(1, rawRpe));
+    if (w !== set.weight || r !== set.reps || clampedRpe !== set.rpe) {
+      updateSet(set.id, w, r, clampedRpe);
+      // Nouveau record si ce poids dépasse strictement le record connu
+      if (w > 0 && w > personalRecord) {
+        onNewRecord(w);
+      }
       onReload();
     }
   };
@@ -472,9 +551,135 @@ function SetRow({ set, onDelete, onReload }: {
         placeholder="0"
         placeholderTextColor={COLORS.textMuted}
       />
+      <TextInput
+        style={setRowStyles.rpeInput}
+        value={rpe}
+        onChangeText={setRpe}
+        onBlur={handleBlur}
+        keyboardType="number-pad"
+        selectTextOnFocus
+        placeholder="—"
+        placeholderTextColor={COLORS.textMuted}
+        maxLength={2}
+      />
       <TouchableOpacity onPress={onDelete} style={setRowStyles.deleteButton}>
         <Ionicons name="close-circle" size={22} color={COLORS.textMuted} />
       </TouchableOpacity>
+    </View>
+  );
+}
+
+// ============================================================
+// PRCelebrationBanner — bannière "Nouveau record !"
+// ============================================================
+
+function PRCelebrationBanner({
+  data,
+  onDone,
+}: {
+  data: { exercise: string; weight: number };
+  onDone: () => void;
+}) {
+  const translateY = useRef(new Animated.Value(-100)).current;
+  const scale = useRef(new Animated.Value(0.8)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(translateY, { toValue: 0, useNativeDriver: true, friction: 6 }),
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true, friction: 5 }),
+    ]).start();
+
+    const timeout = setTimeout(() => {
+      Animated.timing(translateY, {
+        toValue: -100,
+        duration: 250,
+        useNativeDriver: true,
+      }).start(onDone);
+    }, 2600);
+
+    return () => clearTimeout(timeout);
+  }, []);
+
+  return (
+    <Animated.View
+      style={[
+        prStyles.container,
+        { transform: [{ translateY }, { scale }] },
+      ]}
+    >
+      <Text style={prStyles.emoji}>🎉</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={prStyles.title}>Nouveau record !</Text>
+        <Text style={prStyles.subtitle}>
+          {data.exercise} · {data.weight} kg
+        </Text>
+      </View>
+      <Text style={prStyles.emoji}>🏆</Text>
+    </Animated.View>
+  );
+}
+
+// ============================================================
+// RestTimerBar — chrono de repos flottant
+// ============================================================
+
+const REST_PRESETS = [60, 90, 120];
+
+function RestTimerBar({
+  secondsLeft,
+  totalSeconds,
+  onSkip,
+  onSelectDuration,
+  onAddSeconds,
+}: {
+  secondsLeft: number;
+  totalSeconds: number;
+  onSkip: () => void;
+  onSelectDuration: (seconds: number) => void;
+  onAddSeconds: (seconds: number) => void;
+}) {
+  const isDone = secondsLeft <= 0;
+  const minutes = Math.floor(secondsLeft / 60);
+  const seconds = secondsLeft % 60;
+  const progress = totalSeconds > 0 ? Math.max(0, secondsLeft / totalSeconds) : 0;
+
+  return (
+    <View style={restTimerStyles.container}>
+      <View style={restTimerStyles.progressTrack}>
+        <View style={[restTimerStyles.progressFill, { width: `${progress * 100}%` }]} />
+      </View>
+      <View style={restTimerStyles.row}>
+        <View style={restTimerStyles.timeBlock}>
+          <Ionicons
+            name={isDone ? 'checkmark-circle' : 'time'}
+            size={20}
+            color={isDone ? COLORS.success : COLORS.primary}
+          />
+          <Text style={[restTimerStyles.timeText, isDone && { color: COLORS.success }]}>
+            {isDone ? 'Repos terminé !' : `${minutes}:${seconds.toString().padStart(2, '0')}`}
+          </Text>
+        </View>
+
+        <View style={restTimerStyles.presetsRow}>
+          {REST_PRESETS.map((preset) => (
+            <TouchableOpacity
+              key={preset}
+              style={restTimerStyles.presetChip}
+              onPress={() => onSelectDuration(preset)}
+            >
+              <Text style={restTimerStyles.presetText}>{preset}s</Text>
+            </TouchableOpacity>
+          ))}
+          {!isDone && (
+            <TouchableOpacity style={restTimerStyles.addBtn} onPress={() => onAddSeconds(15)}>
+              <Text style={restTimerStyles.addBtnText}>+15s</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={restTimerStyles.skipBtn} onPress={onSkip}>
+            <Ionicons name="close" size={18} color={COLORS.textMuted} />
+          </TouchableOpacity>
+        </View>
+      </View>
     </View>
   );
 }
@@ -659,6 +864,91 @@ const pickerStyles = StyleSheet.create({
     borderRadius: RADIUS.lg, padding: SPACING.base, marginTop: SPACING.md,
   },
   createSaveBtnText: { fontSize: FONTS.base, fontWeight: FONTS.bold, color: '#fff' },
+});
+
+const prStyles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: SPACING.base,
+    left: SPACING.base,
+    right: SPACING.base,
+    zIndex: 100,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    backgroundColor: COLORS.success,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.base,
+    ...SHADOWS.card,
+  },
+  emoji: { fontSize: 26 },
+  title: { fontSize: FONTS.md, fontWeight: FONTS.bold, color: '#fff' },
+  subtitle: { fontSize: FONTS.sm, color: 'rgba(255,255,255,0.9)', marginTop: 2 },
+});
+
+const restTimerStyles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    left: SPACING.base,
+    right: SPACING.base,
+    bottom: SPACING.base,
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    overflow: 'hidden',
+    ...SHADOWS.card,
+  },
+  progressTrack: {
+    height: 4,
+    backgroundColor: COLORS.cardBorder,
+    width: '100%',
+  },
+  progressFill: {
+    height: 4,
+    backgroundColor: COLORS.primary,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.base,
+    paddingVertical: SPACING.sm,
+    gap: SPACING.sm,
+  },
+  timeBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  timeText: {
+    fontSize: FONTS.md,
+    fontWeight: FONTS.bold,
+    color: COLORS.textPrimary,
+    fontVariant: ['tabular-nums'],
+  },
+  presetsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  presetChip: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  presetText: { fontSize: FONTS.xs, color: COLORS.textSecondary, fontWeight: FONTS.medium },
+  addBtn: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.primaryGlow,
+  },
+  addBtnText: { fontSize: FONTS.xs, color: COLORS.primary, fontWeight: FONTS.semibold },
+  skipBtn: { padding: 4 },
 });
 
 const emptyStyles = StyleSheet.create({

@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { getDb } from '../lib/database';
+import { useSettingsStore } from '../lib/settingsStore';
 import { COLORS } from '../constants/theme';
 
 // Empêche le splash screen de se fermer automatiquement
@@ -13,6 +14,8 @@ export default function RootLayout() {
     // Initialise la base de données au démarrage
     try {
       getDb();
+      // Charge les préférences persistées (unité kg/lbs, etc.)
+      useSettingsStore.getState().loadSettings();
     } catch (error) {
       console.error('Erreur d\'initialisation de la BDD :', error);
     } finally {
@@ -66,6 +69,16 @@ export default function RootLayout() {
             headerTitle: 'Importer un historique',
             headerBackTitle: ' ',
             presentation: 'modal',
+          }}
+        />
+        <Stack.Screen
+          name="programs"
+          options={{
+            headerShown: true,
+            headerStyle: { backgroundColor: COLORS.surface },
+            headerTintColor: COLORS.textPrimary,
+            headerTitle: 'Programme d\'entraînement',
+            headerBackTitle: ' ',
           }}
         />
       </Stack>

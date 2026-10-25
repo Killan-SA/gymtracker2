@@ -13,6 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-gifted-charts';
 import dayjs from 'dayjs';
 import { getExerciseStats } from '../../lib/queries';
+import { useSettingsStore } from '../../lib/settingsStore';
+import { fromKg, roundWeight, unitLabel } from '../../lib/units';
 import type { ExerciseStats, ChartPoint } from '../../types';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
 
@@ -32,6 +34,7 @@ const PERIODS: { label: PeriodTab; days?: number }[] = [
 
 export default function ExerciseDetailScreen() {
   const { name } = useLocalSearchParams<{ name: string }>();
+  const useKg = useSettingsStore((s) => s.useKg);
   const [metric, setMetric] = useState<MetricTab>('weight');
   const [period, setPeriod] = useState<PeriodTab>('3M');
   const [stats, setStats] = useState<ExerciseStats | null>(null);
@@ -70,12 +73,13 @@ export default function ExerciseDetailScreen() {
     COLORS.warning;
 
   const chartLabel =
-    metric === 'weight' ? 'kg max' :
-    metric === 'volume' ? 'kg·reps' :
+    metric === 'weight' ? `${unitLabel(useKg)} max` :
+    metric === 'volume' ? `${unitLabel(useKg)}·reps` :
     'reps max';
 
+  // Convertit les valeurs du graphique dans l'unité choisie (poids/volume seulement, pas les reps)
   const gifted = chartData.map((p) => ({
-    value: p.value,
+    value: metric === 'reps' ? p.value : roundWeight(fromKg(p.value, useKg)),
     label: p.label ?? '',
   }));
 
@@ -103,16 +107,16 @@ export default function ExerciseDetailScreen() {
           <Text style={styles.progressionText}>
             Départ {dayjs(stats.firstDate).format('DD/MM/YY')} →{' '}
             <Text style={{ fontWeight: FONTS.bold }}>
-              {stats.firstWeight} kg
+              {roundWeight(fromKg(stats.firstWeight, useKg))} {unitLabel(useKg)}
             </Text>
             {'  '}Aujourd'hui →{' '}
-            <Text style={{ fontWeight: FONTS.bold }}>{stats.lastWeight} kg</Text>
+            <Text style={{ fontWeight: FONTS.bold }}>{roundWeight(fromKg(stats.lastWeight, useKg))} {unitLabel(useKg)}</Text>
             {'  '}
             <Text style={{
               color: stats.progressionFromStart >= 0 ? COLORS.success : COLORS.danger,
               fontWeight: FONTS.bold,
             }}>
-              {stats.progressionFromStart >= 0 ? '+' : ''}{stats.progressionFromStart} kg
+              {stats.progressionFromStart >= 0 ? '+' : ''}{roundWeight(fromKg(stats.progressionFromStart, useKg))} {unitLabel(useKg)}
               {' '}({stats.progressionFromStartPercent >= 0 ? '+' : ''}{stats.progressionFromStartPercent}%)
             </Text>
           </Text>
@@ -131,9 +135,9 @@ export default function ExerciseDetailScreen() {
 
       {/* ── Cards stats ───────────────────────────────────── */}
       <View style={styles.statsGrid}>
-        <StatCard icon="trophy" label="Record" value={`${stats.personalRecord} kg`} color={COLORS.warning} />
-        <StatCard icon="barbell" label="Dernière" value={`${stats.lastWeight} kg`} color={COLORS.primary} />
-        <StatCard icon="flash" label="1RM estimé" value={`${stats.estimated1RM} kg`} color="#BF5FFF" subtitle="Épley" />
+        <StatCard icon="trophy" label="Record" value={`${roundWeight(fromKg(stats.personalRecord, useKg))} ${unitLabel(useKg)}`} color={COLORS.warning} />
+        <StatCard icon="barbell" label="Dernière" value={`${roundWeight(fromKg(stats.lastWeight, useKg))} ${unitLabel(useKg)}`} color={COLORS.primary} />
+        <StatCard icon="flash" label="1RM estimé" value={`${roundWeight(fromKg(stats.estimated1RM, useKg))} ${unitLabel(useKg)}`} color="#BF5FFF" subtitle="Épley" />
         <StatCard icon="calendar" label="Séances" value={`${stats.totalSessions}`} color={COLORS.success} />
         <StatCard
           icon="trending-up"
@@ -190,7 +194,7 @@ export default function ExerciseDetailScreen() {
               {focusedPoint ? (
                 <View style={[styles.tooltip, { borderColor: chartColor }]}>
                   <Text style={[styles.tooltipValue, { color: chartColor }]}>
-                    {focusedPoint.value} {metric === 'reps' ? 'reps' : 'kg'}
+                    {focusedPoint.value} {metric === 'reps' ? 'reps' : unitLabel(useKg)}
                   </Text>
                   <Text style={styles.tooltipDate}>{focusedPoint.label}</Text>
                 </View>

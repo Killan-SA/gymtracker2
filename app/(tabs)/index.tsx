@@ -22,20 +22,31 @@ import {
   getFrequentSessionTemplates,
   getSmartSessionRecommendation,
   createSessionFromTemplate,
+  getMuscleGroupFrequency,
+  getWeeklyReport,
 } from '../../lib/queries';
 import type { SessionTemplate } from '../../lib/queries';
+import { useSettingsStore } from '../../lib/settingsStore';
+import { fromKg, roundWeight, unitLabel } from '../../lib/units';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
-import type { Session, DashboardStats } from '../../types';
+import type { Session, DashboardStats, MuscleGroupFrequency, WeeklyReport } from '../../types';
 
 dayjs.locale('fr');
 
-const formatVolume = (kg: number): string => {
-  if (kg >= 1_000_000) return `${(kg / 1_000_000).toFixed(1)} Mt`;
-  if (kg >= 1_000) return `${(kg / 1_000).toFixed(1)} t`;
-  return `${kg} kg`;
+const formatVolume = (kg: number, useKg: boolean): string => {
+  const converted = fromKg(kg, useKg);
+  if (useKg) {
+    if (converted >= 1_000_000) return `${(converted / 1_000_000).toFixed(1)} Mt`;
+    if (converted >= 1_000) return `${(converted / 1_000).toFixed(1)} t`;
+    return `${Math.round(converted)} kg`;
+  }
+  if (converted >= 1_000_000) return `${(converted / 1_000_000).toFixed(1)} M lbs`;
+  if (converted >= 1_000) return `${(converted / 1_000).toFixed(1)} k lbs`;
+  return `${Math.round(converted)} lbs`;
 };
 
 export default function DashboardScreen() {
+  const useKg = useSettingsStore((s) => s.useKg);
   const [refreshing, setRefreshing] = useState(false);
   const [lastSession, setLastSession] = useState<Session | null>(null);
   const [stats, setStats] = useState<DashboardStats>({
@@ -48,6 +59,9 @@ export default function DashboardScreen() {
   const [totalVolume, setTotalVolume] = useState(0);
   const [templates, setTemplates] = useState<SessionTemplate[]>([]);
   const [smartSession, setSmartSession] = useState<SessionTemplate | null>(null);
+  const [muscleFrequency, setMuscleFrequency] = useState<MuscleGroupFrequency[]>([]);
+  const [weeklyReport, setWeeklyReport] = useState<WeeklyReport | null>(null);
+  const [showWeeklyReport, setShowWeeklyReport] = useState(false);
 
   const loadData = useCallback(() => {
     try {
@@ -74,6 +88,16 @@ export default function DashboardScreen() {
       setSmartSession(getSmartSessionRecommendation());
     } catch (e) {
       console.error('[Dashboard] smartSession error:', e);
+    }
+    try {
+      setMuscleFrequency(getMuscleGroupFrequency(7));
+    } catch (e) {
+      console.error('[Dashboard] muscleFrequency error:', e);
+    }
+    try {
+      setWeeklyReport(getWeeklyReport());
+    } catch (e) {
+      console.error('[Dashboard] weeklyReport error:', e);
     }
   }, []);
 
@@ -107,7 +131,7 @@ export default function DashboardScreen() {
     Alert.alert(
       `Démarrer "${label}" ?`,
       template.exercises.map((ex) =>
-        `• ${ex.name}${ex.suggestedWeight > 0 ? ` → ${ex.suggestedWeight} kg` : ''}`
+        `• ${ex.name}${ex.suggestedWeight > 0 ? ` → ${roundWeight(fromKg(ex.suggestedWeight, useKg))} ${unitLabel(useKg)}` : ''}`
       ).join('\n'),
       [
         { text: 'Annuler', style: 'cancel' },
@@ -147,7 +171,7 @@ export default function DashboardScreen() {
         <StatCard
           icon="flame"
           label="Vol. 7 jours"
-          value={formatVolume(stats.weeklyVolume)}
+          value={formatVolume(stats.weeklyVolume, useKg)}
           color={COLORS.warning}
         />
         <StatCard
@@ -170,12 +194,94 @@ export default function DashboardScreen() {
           <Ionicons name="stats-chart" size={22} color={COLORS.primary} />
           <View style={{ flex: 1 }}>
             <Text style={styles.totalVolumeLabel}>Volume total soulevé depuis le début</Text>
-            <Text style={styles.totalVolumeValue}>{formatVolume(totalVolume)}</Text>
+            <Text style={styles.totalVolumeValue}>{formatVolume(totalVolume, useKg)}</Text>
           </View>
           <Text style={styles.totalVolumeEmoji}>
             {totalVolume >= 1_000_000 ? '🏆' : totalVolume >= 100_000 ? '🔥' : '💪'}
           </Text>
         </View>
+      )}
+
+      {/* ── Groupes musculaires délaissés ─────────────────── */}
+      {muscleFrequency.some((m) => m.isStale && m.lastTrainedDate !== null) && (
+        <View style={styles.staleCard}>
+          <Ionicons name="alert-circle" size={20} color={COLORS.warning} />
+          <View style={{ flex: 1 }}>
+            {muscleFrequency
+              .filter((m) => m.isStale && m.lastTrainedDate !== null)
+              .slice(0, 3)
+              .map((m) => (
+                <Text key={m.category} style={styles.staleText}>
+                  <Text style={styles.staleCategory}>{m.category}</Text> : pas travaillé depuis {m.daysSince} jour{(m.daysSince ?? 0) > 1 ? 's' : ''}
+                </Text>
+              ))}
+          </View>
+        </View>
+      )}
+
+      {/* ── Rapport hebdomadaire ───────────────────────────── */}
+      {weeklyReport && weeklyReport.sessionCount > 0 && (
+        <TouchableOpacity
+          style={styles.reportCard}
+          onPress={() => setShowWeeklyReport((v) => !v)}
+          activeOpacity={0.85}
+        >
+          <View style={styles.reportHeader}>
+            <Ionicons name="newspaper" size={20} color={COLORS.primary} />
+            <Text style={styles.reportTitle}>Rapport de la semaine</Text>
+            <Ionicons
+              name={showWeeklyReport ? 'chevron-up' : 'chevron-down'}
+              size={18}
+              color={COLORS.textMuted}
+            />
+          </View>
+          <View style={styles.reportSummaryRow}>
+            <Text style={styles.reportSummaryItem}>
+              {weeklyReport.sessionCount} séance{weeklyReport.sessionCount > 1 ? 's' : ''}
+            </Text>
+            <Text style={styles.reportSummaryDot}>·</Text>
+            <Text style={styles.reportSummaryItem}>{formatVolume(weeklyReport.totalVolume, useKg)}</Text>
+            {weeklyReport.newRecords.length > 0 && (
+              <>
+                <Text style={styles.reportSummaryDot}>·</Text>
+                <Text style={[styles.reportSummaryItem, { color: COLORS.warning }]}>
+                  🏆 {weeklyReport.newRecords.length} record{weeklyReport.newRecords.length > 1 ? 's' : ''}
+                </Text>
+              </>
+            )}
+          </View>
+
+          {showWeeklyReport && (
+            <View style={styles.reportDetails}>
+              {weeklyReport.muscleGroupsTrained.length > 0 && (
+                <View style={styles.reportSection}>
+                  <Text style={styles.reportSectionTitle}>Muscles travaillés</Text>
+                  <Text style={styles.reportSectionText}>
+                    {weeklyReport.muscleGroupsTrained.map((m) => m.category).join(' · ')}
+                  </Text>
+                </View>
+              )}
+              {weeklyReport.newRecords.length > 0 && (
+                <View style={styles.reportSection}>
+                  <Text style={styles.reportSectionTitle}>Records battus</Text>
+                  {weeklyReport.newRecords.map((r) => (
+                    <Text key={r.exerciseName} style={styles.reportSectionText}>
+                      🏆 {r.exerciseName} — {roundWeight(fromKg(r.weight, useKg))} {unitLabel(useKg)}
+                    </Text>
+                  ))}
+                </View>
+              )}
+              {weeklyReport.mostImprovedExercise && (
+                <View style={styles.reportSection}>
+                  <Text style={styles.reportSectionTitle}>Meilleure progression</Text>
+                  <Text style={styles.reportSectionText}>
+                    {weeklyReport.mostImprovedExercise.name} ({weeklyReport.mostImprovedExercise.gainPercent > 0 ? '+' : ''}{weeklyReport.mostImprovedExercise.gainPercent}%)
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+        </TouchableOpacity>
       )}
 
       {/* ── Séance intelligente (plateau) ─────────────────── */}
@@ -192,7 +298,7 @@ export default function DashboardScreen() {
               <Text style={styles.smartCardTitle}>Tu stagnes — voici comment débloquer</Text>
             </View>
             <Text style={styles.smartCardSub}>
-              {smartSession.exercises.length} exercice{smartSession.exercises.length > 1 ? 's' : ''} avec plateau détecté · +2.5 kg recommandé
+              {smartSession.exercises.length} exercice{smartSession.exercises.length > 1 ? 's' : ''} avec plateau détecté · petite progression recommandée
             </Text>
             <View style={styles.smartExerciseList}>
               {smartSession.exercises.map((ex) => (
@@ -201,7 +307,7 @@ export default function DashboardScreen() {
                   {ex.suggestedWeight > 0 && (
                     <View style={styles.suggestedBadge}>
                       <Text style={styles.suggestedText}>
-                        {ex.lastWeight} → {ex.suggestedWeight} kg
+                        {roundWeight(fromKg(ex.lastWeight, useKg))} → {roundWeight(fromKg(ex.suggestedWeight, useKg))} {unitLabel(useKg)}
                       </Text>
                     </View>
                   )}
@@ -244,7 +350,7 @@ export default function DashboardScreen() {
                         styles.templateExWeight,
                         { color: ex.plateauDetected ? COLORS.warning : COLORS.success },
                       ]}>
-                        {ex.plateauDetected ? '⟳' : '↑'} {ex.suggestedWeight} kg
+                        {ex.plateauDetected ? '⟳' : '↑'} {roundWeight(fromKg(ex.suggestedWeight, useKg))} {unitLabel(useKg)}
                       </Text>
                     )}
                   </View>
@@ -275,7 +381,7 @@ export default function DashboardScreen() {
             </View>
             {lastSessionVolume > 0 && (
               <Text style={styles.sessionVolume}>
-                Volume : {formatVolume(lastSessionVolume)}
+                Volume : {formatVolume(lastSessionVolume, useKg)}
               </Text>
             )}
           </TouchableOpacity>
@@ -294,7 +400,7 @@ export default function DashboardScreen() {
                 onPress={() => router.push(`/exercises/${encodeURIComponent(pr.name)}` as any)}
               >
                 <Text style={styles.recordName}>{pr.name}</Text>
-                <Text style={styles.recordWeight}>{pr.weight} kg</Text>
+                <Text style={styles.recordWeight}>{roundWeight(fromKg(pr.weight, useKg))} {unitLabel(useKg)}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -372,6 +478,37 @@ const styles = StyleSheet.create({
     fontSize: FONTS.base, fontWeight: FONTS.semibold,
     color: COLORS.textSecondary, marginBottom: SPACING.sm, marginTop: SPACING.xs,
   },
+
+  staleCard: {
+    flexDirection: 'row', gap: SPACING.md,
+    backgroundColor: COLORS.warning + '15', borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.warning + '40',
+    padding: SPACING.base, marginBottom: SPACING.lg,
+  },
+  staleText: { fontSize: FONTS.sm, color: COLORS.textSecondary, lineHeight: 20 },
+  staleCategory: { fontWeight: FONTS.bold, color: COLORS.textPrimary },
+
+  reportCard: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
+    borderWidth: 1, borderColor: COLORS.cardBorder,
+    padding: SPACING.base, marginBottom: SPACING.xl,
+    ...SHADOWS.card,
+  },
+  reportHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.xs },
+  reportTitle: { fontSize: FONTS.base, fontWeight: FONTS.bold, color: COLORS.textPrimary, flex: 1 },
+  reportSummaryRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, flexWrap: 'wrap' },
+  reportSummaryItem: { fontSize: FONTS.sm, color: COLORS.textSecondary, fontWeight: FONTS.medium },
+  reportSummaryDot: { fontSize: FONTS.sm, color: COLORS.textMuted },
+  reportDetails: {
+    marginTop: SPACING.md, paddingTop: SPACING.md, gap: SPACING.md,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.separator,
+  },
+  reportSection: { gap: 2 },
+  reportSectionTitle: {
+    fontSize: FONTS.xs, fontWeight: FONTS.bold, color: COLORS.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  reportSectionText: { fontSize: FONTS.sm, color: COLORS.textPrimary },
 
   smartCard: {
     backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
