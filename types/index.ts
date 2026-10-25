@@ -26,6 +26,7 @@ export interface Set {
   set_number: number;
   weight: number;         // En kg
   reps: number;
+  rpe: number | null;     // Difficulté ressentie (RPE/RIR), 1-10
   notes: string | null;
 }
 
@@ -91,4 +92,42 @@ export interface DashboardStats {
 export interface MuscleGroupVolume {
   category: string;
   volume: number;
+}
+
+/** Fraîcheur d'entraînement d'un groupe musculaire */
+export interface MuscleGroupFrequency {
+  category: string;
+  lastTrainedDate: string | null;  // null si jamais entraîné
+  daysSince: number | null;        // null si jamais entraîné
+  isStale: boolean;                // true si pas travaillé depuis > seuil
+}
+
+/** Rapport hebdomadaire (7 derniers jours) */
+export interface WeeklyReport {
+  periodStart: string;
+  periodEnd: string;
+  sessionCount: number;
+  totalVolume: number;                              // kg
+  newRecords: { exerciseName: string; weight: number }[];
+  muscleGroupsTrained: { category: string; volume: number }[];
+  mostImprovedExercise: { name: string; gainPercent: number } | null;
+}
+
+// ============================================================
+// Programmes prédéfinis (PPL, Upper/Lower, Full Body...)
+// ============================================================
+
+/** Un jour de programme, avec la liste d'exercices prescrits */
+export interface ProgramDay {
+  label: string;          // "Push", "Pull", "Legs", "Jour 1"...
+  exerciseNames: string[];
+}
+
+/** Un programme d'entraînement prédéfini */
+export interface TrainingProgram {
+  id: string;
+  name: string;
+  description: string;
+  daysPerWeek: number;
+  days: ProgramDay[];
 }

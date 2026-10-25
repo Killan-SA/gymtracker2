@@ -14,25 +14,33 @@ import { useState, useEffect } from 'react';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { resetAllData, getUserBodyweight, setUserBodyweight } from '../../lib/queries';
+import { useSettingsStore } from '../../lib/settingsStore';
+import { fromKg, toKg, unitLabel, roundWeight } from '../../lib/units';
 import { COLORS, FONTS, SPACING, RADIUS } from '../../constants/theme';
 
 export default function SettingsScreen() {
-  const [useKg, setUseKg] = useState(true);
+  const useKg = useSettingsStore((s) => s.useKg);
+  const toggleUnit = useSettingsStore((s) => s.toggleUnit);
   const [bodyweightInput, setBodyweightInput] = useState('');
 
   useEffect(() => {
-    const bw = getUserBodyweight();
-    if (bw > 0) setBodyweightInput(bw.toString());
-  }, []);
+    const bwKg = getUserBodyweight();
+    if (bwKg > 0) setBodyweightInput(roundWeight(fromKg(bwKg, useKg)).toString());
+  }, [useKg]);
 
   const handleSaveBodyweight = () => {
-    const kg = parseFloat(bodyweightInput);
-    if (isNaN(kg) || kg <= 0 || kg > 300) {
-      Alert.alert('Valeur invalide', 'Entre un poids entre 1 et 300 kg.');
+    const entered = parseFloat(bodyweightInput);
+    if (isNaN(entered) || entered <= 0) {
+      Alert.alert('Valeur invalide', `Entre un poids valide en ${unitLabel(useKg)}.`);
+      return;
+    }
+    const kg = toKg(entered, useKg);
+    if (kg > 300) {
+      Alert.alert('Valeur invalide', `Entre un poids raisonnable (max ${useKg ? '300 kg' : '660 lbs'}).`);
       return;
     }
     setUserBodyweight(kg);
-    Alert.alert('✅ Enregistré', `Ton poids corporel (${kg} kg) est sauvegardé.`);
+    Alert.alert('✅ Enregistré', `Ton poids corporel (${roundWeight(entered)} ${unitLabel(useKg)}) est sauvegardé.`);
   };
 
   const handleReset = () => {
@@ -89,7 +97,7 @@ export default function SettingsScreen() {
             <View style={[settingStyles.iconContainer, { backgroundColor: `${COLORS.success}20` }]}>
               <Ionicons name="person-outline" size={20} color={COLORS.success} />
             </View>
-            <Text style={settingStyles.label}>Mon poids (kg)</Text>
+            <Text style={settingStyles.label}>{`Mon poids (${unitLabel(useKg)})`}</Text>
             <View style={styles.bwRow}>
               <TextInput
                 style={styles.bwInput}
@@ -117,7 +125,7 @@ export default function SettingsScreen() {
                 <Text style={[styles.unitLabel, !useKg && styles.unitLabelActive]}>lbs</Text>
                 <Switch
                   value={useKg}
-                  onValueChange={setUseKg}
+                  onValueChange={toggleUnit}
                   trackColor={{ false: COLORS.cardBorder, true: COLORS.primaryDark }}
                   thumbColor={useKg ? COLORS.primary : COLORS.textMuted}
                   ios_backgroundColor={COLORS.cardBorder}
@@ -137,6 +145,14 @@ export default function SettingsScreen() {
         {/* ── Données ────────────────────────────────────── */}
         <Text style={styles.sectionTitle}>Données</Text>
         <View style={styles.section}>
+          <SettingRow
+            icon="calendar-outline"
+            iconColor={COLORS.primary}
+            label="Programme d'entraînement"
+            onPress={() => router.push('/programs' as any)}
+            showArrow
+          />
+          <View style={styles.rowDivider} />
           <SettingRow
             icon="cloud-upload-outline"
             iconColor={COLORS.primary}

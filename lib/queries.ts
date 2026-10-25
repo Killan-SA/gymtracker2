@@ -1,6 +1,6 @@
 import dayjs from 'dayjs';
 import { getDb, generateId, nowISO } from './database';
-import { PREDEFINED_EXERCISES } from '../constants/exercises';
+import { PREDEFINED_EXERCISES, EXERCISE_CATEGORIES } from '../constants/exercises';
 import type { ExerciseEntry } from '../constants/exercises';
 import type {
   Session,
@@ -12,6 +12,8 @@ import type {
   ExerciseStats,
   DashboardStats,
   MuscleGroupVolume,
+  MuscleGroupFrequency,
+  WeeklyReport,
 } from '../types';
 
 // ============================================================
@@ -169,6 +171,7 @@ export function addSet(
   exerciseId: string,
   weight: number,
   reps: number,
+  rpe?: number | null,
   notes?: string
 ): Set {
   const db = getDb();
@@ -185,23 +188,29 @@ export function addSet(
     set_number: setNumber,
     weight,
     reps,
+    rpe: rpe ?? null,
     notes: notes ?? null,
   };
 
   db.runSync(
-    'INSERT INTO sets (id, exercise_id, set_number, weight, reps, notes) VALUES (?, ?, ?, ?, ?, ?)',
-    [set.id, set.exercise_id, set.set_number, set.weight, set.reps, set.notes]
+    'INSERT INTO sets (id, exercise_id, set_number, weight, reps, rpe, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [set.id, set.exercise_id, set.set_number, set.weight, set.reps, set.rpe, set.notes]
   );
 
   return set;
 }
 
 /** Met à jour une série existante */
-export function updateSet(setId: string, weight: number, reps: number): void {
+export function updateSet(
+  setId: string,
+  weight: number,
+  reps: number,
+  rpe?: number | null
+): void {
   const db = getDb();
   db.runSync(
-    'UPDATE sets SET weight = ?, reps = ? WHERE id = ?',
-    [weight, reps, setId]
+    'UPDATE sets SET weight = ?, reps = ?, rpe = ? WHERE id = ?',
+    [weight, reps, rpe ?? null, setId]
   );
 }
 
@@ -271,6 +280,19 @@ export function getMonthlySessionCount(): number {
     [monthStart]
   );
   return result?.count ?? 0;
+}
+
+/** Record personnel (poids max) pour un seul exercice, 0 si jamais pratiqué */
+export function getExercisePersonalRecord(exerciseName: string): number {
+  const db = getDb();
+  const result = db.getFirstSync<{ pr: number | null }>(
+    `SELECT MAX(s.weight) as pr
+     FROM sets s
+     JOIN exercises e ON s.exercise_id = e.id
+     WHERE e.name = ?`,
+    [exerciseName]
+  );
+  return result?.pr ?? 0;
 }
 
 /** Records personnels (poids max par exercice) */
@@ -508,6 +530,140 @@ export function getVolumeByMuscleGroup(daysBack?: number): MuscleGroupVolume[] {
     .sort((a, b) => b.volume - a.volume);
 }
 
+/**
+ * Pour chaque groupe musculaire, retourne la date de la dernière séance
+ * l'ayant travaillé et le nombre de jours écoulés. Sert à repérer les
+ * groupes délaissés (ex. "Jambes : il y a 12 jours").
+ */
+export function getMuscleGroupFrequency(staleDaysThreshold: number = 7): MuscleGroupFrequency[] {
+  const db = getDb();
+
+  // Dernière date d'entraînement par nom d'exercice
+  const rows = db.getAllSync<{ name: string; last_date: string }>(
+    `SELECT e.name, MAX(sess.date) as last_date
+     FROM sets s
+     JOIN exercises e ON s.exercise_id = e.id
+     JOIN sessions sess ON e.session_id = sess.id
+     WHERE s.weight >= 0
+     GROUP BY e.name`
+  );
+
+  // Regroupe par catégorie en gardant la date la plus récente
+  const categoryLastDate = new Map<string, string>();
+  for (const row of rows) {
+    const entry = PREDEFINED_EXERCISES.find(
+      (pe) => pe.name.toLowerCase() === row.name.toLowerCase()
+    );
+    const cat = entry?.category ?? 'Autre';
+    const current = categoryLastDate.get(cat);
+    if (!current || row.last_date > current) {
+      categoryLastDate.set(cat, row.last_date);
+    }
+  }
+
+  const now = dayjs();
+  const categories = EXERCISE_CATEGORIES.filter((c) => c !== 'Cardio' && c !== 'Abdominaux');
+
+  return categories.map((category) => {
+    const lastDate = categoryLastDate.get(category) ?? null;
+    const daysSince = lastDate ? now.diff(dayjs(lastDate), 'day') : null;
+    return {
+      category,
+      lastTrainedDate: lastDate,
+      daysSince,
+      isStale: daysSince === null || daysSince >= staleDaysThreshold,
+    } satisfies MuscleGroupFrequency;
+  }).sort((a, b) => {
+    // Les jamais-entraînés et les plus "vieux" en premier
+    if (a.daysSince === null) return -1;
+    if (b.daysSince === null) return 1;
+    return b.daysSince - a.daysSince;
+  });
+}
+
+/**
+ * Rapport des 7 derniers jours : volume, séances, records battus,
+ * groupes musculaires travaillés.
+ */
+export function getWeeklyReport(): WeeklyReport {
+  const db = getDb();
+  const periodStart = dayjs().subtract(7, 'day').startOf('day');
+  const periodEnd = dayjs();
+
+  const sessionCountResult = db.getFirstSync<{ count: number }>(
+    'SELECT COUNT(*) as count FROM sessions WHERE date >= ?',
+    [periodStart.toISOString()]
+  );
+
+  const volumeResult = db.getFirstSync<{ total: number | null }>(
+    `SELECT COALESCE(SUM(s.weight * s.reps), 0) as total
+     FROM sets s
+     JOIN exercises e ON s.exercise_id = e.id
+     JOIN sessions sess ON e.session_id = sess.id
+     WHERE sess.date >= ? AND s.weight > 0`,
+    [periodStart.toISOString()]
+  );
+
+  // Records battus cette semaine : le record all-time a été posé dans les 7 derniers jours
+  const exerciseNames = db.getAllSync<{ name: string }>(
+    `SELECT DISTINCT e.name FROM exercises e
+     JOIN sessions sess ON e.session_id = sess.id
+     WHERE sess.date >= ?`,
+    [periodStart.toISOString()]
+  );
+
+  const newRecords: { exerciseName: string; weight: number }[] = [];
+  for (const { name } of exerciseNames) {
+    const allTimeMax = db.getFirstSync<{ pr: number | null }>(
+      `SELECT MAX(s.weight) as pr FROM sets s
+       JOIN exercises e ON s.exercise_id = e.id
+       WHERE e.name = ?`,
+      [name]
+    );
+    const pr = allTimeMax?.pr ?? 0;
+    if (pr <= 0) continue;
+    const recentMax = db.getFirstSync<{ pr: number | null }>(
+      `SELECT MAX(s.weight) as pr FROM sets s
+       JOIN exercises e ON s.exercise_id = e.id
+       JOIN sessions sess ON e.session_id = sess.id
+       WHERE e.name = ? AND sess.date >= ?`,
+      [name, periodStart.toISOString()]
+    );
+    // Si le max de la semaine égale le record all-time, c'est un nouveau record
+    if ((recentMax?.pr ?? 0) >= pr) {
+      newRecords.push({ exerciseName: name, weight: pr });
+    }
+  }
+
+  const muscleGroupsTrained = getVolumeByMuscleGroup(7);
+
+  // Exercice le plus amélioré cette semaine (comparé aux 7 jours précédents)
+  let mostImprovedExercise: { name: string; gainPercent: number } | null = null;
+  let bestGain = 0;
+  for (const { name } of exerciseNames) {
+    const hist = getWeightHistory(name, 21);
+    if (hist.length < 2) continue;
+    const before = hist[0].value;
+    const after = hist[hist.length - 1].value;
+    if (before <= 0) continue;
+    const gain = ((after - before) / before) * 100;
+    if (gain > bestGain) {
+      bestGain = gain;
+      mostImprovedExercise = { name, gainPercent: Math.round(gain) };
+    }
+  }
+
+  return {
+    periodStart: periodStart.toISOString(),
+    periodEnd: periodEnd.toISOString(),
+    sessionCount: sessionCountResult?.count ?? 0,
+    totalVolume: Math.round(volumeResult?.total ?? 0),
+    newRecords,
+    muscleGroupsTrained,
+    mostImprovedExercise,
+  };
+}
+
 /** Données complètes du tableau de bord */
 export function getDashboardStats(): DashboardStats {
   const db = getDb();
@@ -652,6 +808,78 @@ export function createSessionFromTemplate(template: SessionTemplate): string {
   for (const ex of template.exercises) {
     addExerciseToSession(session.id, ex.name);
   }
+  return session.id;
+}
+
+// ============================================================
+// PROGRAMMES PRÉDÉFINIS
+// ============================================================
+
+const ACTIVE_PROGRAM_KEY = 'active_program_id';
+const PROGRAM_DAY_INDEX_KEY = 'active_program_day_index';
+
+/** Retourne l'id du programme actif, ou null si aucun n'est sélectionné */
+export function getActiveProgramId(): string | null {
+  const db = getDb();
+  const row = db.getFirstSync<{ value: string }>(
+    'SELECT value FROM app_settings WHERE key = ?',
+    [ACTIVE_PROGRAM_KEY]
+  );
+  return row?.value ?? null;
+}
+
+/** Active un programme (et remet le compteur de jour à 0) */
+export function setActiveProgram(programId: string | null): void {
+  const db = getDb();
+  if (programId === null) {
+    db.runSync('DELETE FROM app_settings WHERE key = ?', [ACTIVE_PROGRAM_KEY]);
+    db.runSync('DELETE FROM app_settings WHERE key = ?', [PROGRAM_DAY_INDEX_KEY]);
+    return;
+  }
+  db.runSync(
+    `INSERT INTO app_settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [ACTIVE_PROGRAM_KEY, programId]
+  );
+  db.runSync(
+    `INSERT INTO app_settings (key, value) VALUES (?, '0')
+     ON CONFLICT(key) DO UPDATE SET value = '0'`,
+    [PROGRAM_DAY_INDEX_KEY]
+  );
+}
+
+/** Index du prochain jour de programme à faire (0-based, cycle automatiquement) */
+export function getNextProgramDayIndex(): number {
+  const db = getDb();
+  const row = db.getFirstSync<{ value: string }>(
+    'SELECT value FROM app_settings WHERE key = ?',
+    [PROGRAM_DAY_INDEX_KEY]
+  );
+  return row ? parseInt(row.value, 10) || 0 : 0;
+}
+
+/**
+ * Crée une séance pré-remplie avec les exercices du jour de programme donné.
+ * `nextDayIndex` est l'index (déjà calculé côté UI, avec le modulo sur la
+ * longueur du programme) à enregistrer comme "prochain jour" pour la fois suivante.
+ */
+export function createSessionFromProgramDay(
+  exerciseNames: string[],
+  nextDayIndex: number
+): string {
+  const db = getDb();
+  const session = createSession();
+
+  for (const name of exerciseNames) {
+    addExerciseToSession(session.id, name);
+  }
+
+  db.runSync(
+    `INSERT INTO app_settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [PROGRAM_DAY_INDEX_KEY, nextDayIndex.toString()]
+  );
+
   return session.id;
 }
 

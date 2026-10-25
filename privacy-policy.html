@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Politique de confidentialité — GymTracker</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #09090F;
+      color: #E8E8F0;
+      line-height: 1.7;
+      padding: 40px 20px 80px;
+    }
+
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 48px;
+    }
+
+    .logo-icon {
+      width: 48px;
+      height: 48px;
+      background: #0066FF;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+    }
+
+    .logo-text {
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    h1 {
+      font-size: 32px;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: #8B8FA8;
+      font-size: 15px;
+      margin-bottom: 48px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(0, 214, 143, 0.12);
+      color: #00D68F;
+      border: 1px solid rgba(0, 214, 143, 0.25);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 48px;
+    }
+
+    section {
+      background: #17172A;
+      border: 1px solid #22223A;
+      border-radius: 16px;
+      padding: 28px;
+      margin-bottom: 16px;
+    }
+
+    h2 {
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    h2 .icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    p, li {
+      font-size: 15px;
+      color: #B0B4CC;
+    }
+
+    ul {
+      list-style: none;
+      padding: 0;
+      margin-top: 8px;
+    }
+
+    ul li {
+      padding: 4px 0;
+      padding-left: 20px;
+      position: relative;
+    }
+
+    ul li::before {
+      content: '•';
+      position: absolute;
+      left: 4px;
+      color: #0066FF;
+    }
+
+    .highlight {
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .footer {
+      margin-top: 48px;
+      text-align: center;
+      color: #45455F;
+      font-size: 13px;
+    }
+
+    .footer a {
+      color: #338DFF;
+      text-decoration: none;
+    }
+
+    .contact-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #0066FF;
+      color: #fff;
+      border-radius: 12px;
+      padding: 12px 20px;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <div class="logo">
+      <div class="logo-icon">🏋️</div>
+      <span class="logo-text">GymTracker</span>
+    </div>
+
+    <h1>Politique de confidentialité</h1>
+    <p class="subtitle">Dernière mise à jour : octobre 2026</p>
+
+    <div class="badge">
+      ✅ Aucune donnée collectée ni partagée
+    </div>
+
+    <section>
+      <h2>
+        <span class="icon" style="background: rgba(0,102,255,0.15);">📱</span>
+        En résumé
+      </h2>
+      <p>
+        GymTracker est une application <span class="highlight">100% hors-ligne</span>.
+        Elle ne collecte aucune donnée personnelle, ne se connecte à aucun serveur
+        et ne partage aucune information avec des tiers.
+        Toutes tes données restent <span class="highlight">uniquement sur ton appareil</span>.
+      </p>
+    </section>
+
+    <section>
+      <h2>
+        <span class="icon" style="background: rgba(0,214,143,0.12);">🔒</span>
+        Données stockées
+      </h2>
+      <p>L'application enregistre localement, sur ton appareil uniquement :</p>
+      <ul>
+        <li>Tes séances d'entraînement (date, exercices, séries, poids, répétitions)</li>
+        <li>L'historique de tes performances</li>
+        <li>Tes préférences d'affichage (unité kg/lbs)</li>
+      </ul>
+      <p style="margin-top: 12px;">
+        Ces données sont stockées dans une base de données SQLite locale
+        et ne quittent jamais ton téléphone.
+      </p>
+    </section>
+
+    <section>
+      <h2>
+        <span class="icon" style="background: rgba(255,184,0,0.12);">🌐</span>
+        Connexion internet
+      </h2>
+      <p>
+        GymTracker <span class="highlight">ne nécessite pas de connexion internet</span>
+        et n'effectue aucune requête réseau. L'application fonctionne entièrement hors-ligne.
+      </p>
+    </section>
+
+    <section>
+      <h2>
+        <span class="icon" style="background: rgba(255,59,92,0.12);">🚫</span>
+        Ce que nous ne faisons pas
+      </h2>
+      <ul>
+        <li>Nous ne collectons aucune donnée personnelle (nom, email, localisation…)</li>
+        <li>Nous n'utilisons aucun tracker, analytics ou outil de mesure d'audience</li>
+        <li>Nous ne vendons, ne partageons ni ne transmettons aucune donnée à des tiers</li>
+        <li>Nous n'accédons pas à ta caméra, tes contacts, ta galerie photo ou ta localisation</li>
+        <li>Nous n'affichons aucune publicité</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>
+        <span class="icon" style="background: rgba(0,102,255,0.15);">📤</span>
+        Export de données
+      </h2>
+      <p>
+        La fonctionnalité d'export génère un fichier depuis tes données locales
+        et te permet de le sauvegarder où tu veux (ton téléphone, iCloud, email…).
+        Ce fichier n'est envoyé nulle part automatiquement.
+      </p>
+    </section>
+
+    <section>
+      <h2>
+        <span class="icon" style="background: rgba(0,214,143,0.12);">👶</span>
+        Protection des mineurs
+      </h2>
+      <p>
+        GymTracker ne collecte aucune donnée, y compris pour les utilisateurs mineurs.
+        L'application est accessible à tous et convient à partir de 4 ans
+        selon les classifications de l'App Store.
+      </p>
+    </section>
+
+    <section>
+      <h2>
+        <span class="icon" style="background: rgba(255,184,0,0.12);">✏️</span>
+        Modifications
+      </h2>
+      <p>
+        Cette politique peut être mise à jour. En cas de changement significatif,
+        la date de mise à jour en haut de cette page sera modifiée.
+        Continuer à utiliser l'application vaut acceptation des nouvelles conditions.
+      </p>
+    </section>
+
+    <section>
+      <h2>
+        <span class="icon" style="background: rgba(0,102,255,0.15);">✉️</span>
+        Contact
+      </h2>
+      <p>Des questions sur cette politique ?</p>
+      <a class="contact-link" href="mailto:contact@gymtracker.app">
+        📧 contact@gymtracker.app
+      </a>
+    </section>
+
+    <div class="footer">
+      <p>© 2026 GymTracker · Tous droits réservés</p>
+      <p style="margin-top: 6px;">Fait avec 💪 pour les passionnés de musculation</p>
+    </div>
+
+  </div>
+</body>
+</html>

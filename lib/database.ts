@@ -69,6 +69,14 @@ function _initDatabase(db: SQLite.SQLiteDatabase): void {
     );
   `);
 
+  // Table de préférences (clé/valeur), ex. unité de poids (kg/lbs)
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+
   // Index pour accélérer les requêtes fréquentes
   db.execSync(`
     CREATE INDEX IF NOT EXISTS idx_exercises_session_id
@@ -155,6 +163,26 @@ export function resetAllData(): void {
   db.execSync('DELETE FROM exercises;');
   db.execSync('DELETE FROM sessions;');
   db.execSync('DELETE FROM exercise_names;');
+}
+
+/** Lit une préférence persistée (ou null si jamais définie) */
+export function getAppSetting(key: string): string | null {
+  const db = getDb();
+  const row = db.getFirstSync<{ value: string }>(
+    'SELECT value FROM app_settings WHERE key = ?',
+    [key]
+  );
+  return row?.value ?? null;
+}
+
+/** Enregistre une préférence de façon persistée */
+export function setAppSetting(key: string, value: string): void {
+  const db = getDb();
+  db.runSync(
+    `INSERT INTO app_settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [key, value]
+  );
 }
 
 /** Génère un identifiant unique (UUID v4) */

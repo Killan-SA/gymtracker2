@@ -12,6 +12,8 @@ import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/fr';
 import { getSessionWithExercises, deleteSession, getSessionVolume } from '../../lib/queries';
+import { useSettingsStore } from '../../lib/settingsStore';
+import { fromKg, roundWeight, unitLabel } from '../../lib/units';
 import { COLORS, FONTS, SPACING, RADIUS } from '../../constants/theme';
 import type { SessionWithExercises } from '../../types';
 
@@ -19,6 +21,7 @@ dayjs.locale('fr');
 
 export default function SessionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const useKg = useSettingsStore((s) => s.useKg);
   const [session, setSession] = useState<SessionWithExercises | null>(null);
   const [volume, setVolume] = useState(0);
 
@@ -79,7 +82,7 @@ export default function SessionDetailScreen() {
           />
           <StatBadge
             label="Volume"
-            value={`${Math.round(volume).toLocaleString('fr')} kg`}
+            value={`${Math.round(fromKg(volume, useKg)).toLocaleString('fr')} ${unitLabel(useKg)}`}
             icon="flash"
           />
         </View>
@@ -108,10 +111,10 @@ export default function SessionDetailScreen() {
             {exercise.sets.map((set) => (
               <View key={set.id} style={styles.setRow}>
                 <Text style={styles.setNum}>{set.set_number}</Text>
-                <Text style={styles.setVal}>{set.weight} kg</Text>
+                <Text style={styles.setVal}>{roundWeight(fromKg(set.weight, useKg))} {unitLabel(useKg)}</Text>
                 <Text style={styles.setVal}>× {set.reps}</Text>
                 <Text style={styles.setVol}>
-                  {Math.round(set.weight * set.reps)} kg
+                  {Math.round(fromKg(set.weight * set.reps, useKg))} {unitLabel(useKg)}
                 </Text>
 
               </View>
