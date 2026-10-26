@@ -24,9 +24,12 @@ import {
   createSessionFromTemplate,
   getMuscleGroupFrequency,
   getWeeklyReport,
+  createSessionFromProgramDay,
 } from '../../lib/queries';
 import type { SessionTemplate } from '../../lib/queries';
 import { useSettingsStore } from '../../lib/settingsStore';
+import { useAppTheme } from '../../lib/themes';
+import { getProgramById } from '../../lib/programs';
 import { fromKg, roundWeight, unitLabel } from '../../lib/units';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
 import type { Session, DashboardStats, MuscleGroupFrequency, WeeklyReport } from '../../types';
@@ -47,6 +50,11 @@ const formatVolume = (kg: number, useKg: boolean): string => {
 
 export default function DashboardScreen() {
   const useKg = useSettingsStore((s) => s.useKg);
+  const currentProgramId = useSettingsStore((s) => s.currentProgramId);
+  const currentProgramDayIndex = useSettingsStore((s) => s.currentProgramDayIndex);
+  const advanceProgramDay = useSettingsStore((s) => s.advanceProgramDay);
+  const theme = useAppTheme();
+
   const [refreshing, setRefreshing] = useState(false);
   const [lastSession, setLastSession] = useState<Session | null>(null);
   const [stats, setStats] = useState<DashboardStats>({
@@ -147,12 +155,42 @@ export default function DashboardScreen() {
     );
   };
 
+  // ── Prochaine séance du programme ────────────────────────
+  const activeProgram = currentProgramId ? getProgramById(currentProgramId) : null;
+  const nextDay = activeProgram
+    ? activeProgram.days[currentProgramDayIndex % activeProgram.days.length]
+    : null;
+
+  const handleStartProgramDay = () => {
+    if (!activeProgram || !nextDay) return;
+    const totalDays = activeProgram.days.length;
+    const nextIndex = (currentProgramDayIndex + 1) % totalDays;
+
+    Alert.alert(
+      `${nextDay.emoji ?? '💪'} ${nextDay.label}`,
+      `Exercices prévus :\n${nextDay.exerciseNames.map((n) => `• ${n}`).join('\n')}`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Démarrer cette séance 💪',
+          onPress: () => {
+            const sessionId = createSessionFromProgramDay(nextDay.exerciseNames, nextIndex);
+            // Met à jour le store Zustand (persisté dans user_settings par createSessionFromProgramDay)
+            advanceProgramDay(totalDays);
+            router.push(`/session/${sessionId}` as any);
+            loadData();
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <ScrollView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: theme.background }]}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}
     >
       {/* ── Header ─────────────────────────────────────────── */}
       <View style={styles.header}>
@@ -160,11 +198,60 @@ export default function DashboardScreen() {
           <Text style={styles.greeting}>Bonjour 👋</Text>
           <Text style={styles.date}>{dayjs().format('dddd D MMMM')}</Text>
         </View>
-        <TouchableOpacity style={styles.newSessionBtn} onPress={handleNewSession}>
+        <TouchableOpacity style={[styles.newSessionBtn, { backgroundColor: theme.primary }]} onPress={handleNewSession}>
           <Ionicons name="add" size={22} color="#fff" />
           <Text style={styles.newSessionText}>Séance</Text>
         </TouchableOpacity>
       </View>
+
+      {/* ── Prochaine séance du programme ─────────────────── */}
+      {activeProgram && nextDay && (
+        <>
+          <Text style={styles.sectionTitle}>📅 Prochaine séance</Text>
+          <TouchableOpacity
+            style={[styles.nextSessionCard, { backgroundColor: theme.card, borderColor: theme.primary + '60' }]}
+            onPress={handleStartProgramDay}
+            activeOpacity={0.85}
+          >
+            <View style={styles.nextSessionHeader}>
+              <Text style={styles.nextSessionEmoji}>{nextDay.emoji ?? '💪'}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.nextSessionProgram, { color: theme.primary }]}>{activeProgram.name}</Text>
+                <Text style={styles.nextSessionLabel}>{nextDay.label}</Text>
+              </View>
+              {nextDay.muscleGroups && (
+                <View style={[styles.dayBadge, { backgroundColor: theme.primaryGlow, borderColor: theme.primary + '40' }]}>
+                  <Text style={[styles.dayBadgeText, { color: theme.primary }]}>
+                    Jour {(currentProgramDayIndex % activeProgram.days.length) + 1}/{activeProgram.days.length}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {nextDay.muscleGroups && nextDay.muscleGroups.length > 0 && (
+              <Text style={styles.nextSessionMuscles}>
+                🎯 {nextDay.muscleGroups.join(' · ')}
+              </Text>
+            )}
+
+            <View style={styles.nextSessionExList}>
+              {nextDay.exerciseNames.slice(0, 4).map((name) => (
+                <Text key={name} style={styles.nextSessionEx}>• {name}</Text>
+              ))}
+              {nextDay.exerciseNames.length > 4 && (
+                <Text style={[styles.nextSessionEx, { color: COLORS.textMuted, fontStyle: 'italic' }]}>
+                  +{nextDay.exerciseNames.length - 4} autres exercices…
+                </Text>
+              )}
+            </View>
+
+            <View style={[styles.startProgramBtn, { backgroundColor: theme.primary }]}>
+              <Ionicons name="play" size={16} color="#fff" />
+              <Text style={styles.startProgramBtnText}>Démarrer cette séance</Text>
+            </View>
+          </TouchableOpacity>
+        </>
+      )}
 
       {/* ── Stats principales ──────────────────────────────── */}
       <View style={styles.statsRow}>
@@ -173,28 +260,31 @@ export default function DashboardScreen() {
           label="Vol. 7 jours"
           value={formatVolume(stats.weeklyVolume, useKg)}
           color={COLORS.warning}
+          theme={theme}
         />
         <StatCard
           icon="calendar"
           label="Ce mois"
           value={`${stats.monthlySessionCount} séances`}
-          color={COLORS.primary}
+          color={theme.primary}
+          theme={theme}
         />
         <StatCard
           icon="barbell"
           label="Total séances"
           value={`${stats.totalSessionCount}`}
           color={COLORS.success}
+          theme={theme}
         />
       </View>
 
       {/* ── Volume total all-time ─────────────────────────── */}
       {totalVolume > 0 && (
-        <View style={styles.totalVolumeCard}>
-          <Ionicons name="stats-chart" size={22} color={COLORS.primary} />
+        <View style={[styles.totalVolumeCard, { backgroundColor: theme.primaryGlow, borderColor: theme.primary + '40' }]}>
+          <Ionicons name="stats-chart" size={22} color={theme.primary} />
           <View style={{ flex: 1 }}>
             <Text style={styles.totalVolumeLabel}>Volume total soulevé depuis le début</Text>
-            <Text style={styles.totalVolumeValue}>{formatVolume(totalVolume, useKg)}</Text>
+            <Text style={[styles.totalVolumeValue, { color: theme.primary }]}>{formatVolume(totalVolume, useKg)}</Text>
           </View>
           <Text style={styles.totalVolumeEmoji}>
             {totalVolume >= 1_000_000 ? '🏆' : totalVolume >= 100_000 ? '🔥' : '💪'}
@@ -222,12 +312,12 @@ export default function DashboardScreen() {
       {/* ── Rapport hebdomadaire ───────────────────────────── */}
       {weeklyReport && weeklyReport.sessionCount > 0 && (
         <TouchableOpacity
-          style={styles.reportCard}
+          style={[styles.reportCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
           onPress={() => setShowWeeklyReport((v) => !v)}
           activeOpacity={0.85}
         >
           <View style={styles.reportHeader}>
-            <Ionicons name="newspaper" size={20} color={COLORS.primary} />
+            <Ionicons name="newspaper" size={20} color={theme.primary} />
             <Text style={styles.reportTitle}>Rapport de la semaine</Text>
             <Ionicons
               name={showWeeklyReport ? 'chevron-up' : 'chevron-down'}
@@ -289,7 +379,7 @@ export default function DashboardScreen() {
         <>
           <Text style={styles.sectionTitle}>🧠 Séance conseillée</Text>
           <TouchableOpacity
-            style={styles.smartCard}
+            style={[styles.smartCard, { backgroundColor: theme.card, borderColor: COLORS.warning + '50' }]}
             onPress={() => handleStartTemplate(smartSession, 'Séance anti-plateau')}
             activeOpacity={0.85}
           >
@@ -328,7 +418,7 @@ export default function DashboardScreen() {
           {templates.map((tmpl, i) => (
             <TouchableOpacity
               key={i}
-              style={styles.templateCard}
+              style={[styles.templateCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
               onPress={() => handleStartTemplate(tmpl, `Séance ${i + 1}`)}
               activeOpacity={0.85}
             >
@@ -337,8 +427,8 @@ export default function DashboardScreen() {
                   {tmpl.exercises.slice(0, 2).map(e => e.name).join(' + ')}
                   {tmpl.exercises.length > 2 ? ` +${tmpl.exercises.length - 2}` : ''}
                 </Text>
-                <View style={styles.countBadge}>
-                  <Text style={styles.countBadgeText}>{tmpl.count}×</Text>
+                <View style={[styles.countBadge, { backgroundColor: theme.primary + '25' }]}>
+                  <Text style={[styles.countBadgeText, { color: theme.primary }]}>{tmpl.count}×</Text>
                 </View>
               </View>
               <View style={styles.templateExList}>
@@ -369,12 +459,12 @@ export default function DashboardScreen() {
         <>
           <Text style={styles.sectionTitle}>Dernière séance</Text>
           <TouchableOpacity
-            style={styles.sessionCard}
+            style={[styles.sessionCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
             onPress={() => router.push(`/history/${lastSession.id}` as any)}
             activeOpacity={0.8}
           >
             <View style={styles.sessionCardRow}>
-              <Ionicons name="time-outline" size={18} color={COLORS.primary} />
+              <Ionicons name="time-outline" size={18} color={theme.primary} />
               <Text style={styles.sessionDate}>
                 {dayjs(lastSession.date).format('dddd D MMM · HH:mm')}
               </Text>
@@ -392,11 +482,11 @@ export default function DashboardScreen() {
       {stats.personalRecords.length > 0 && (
         <>
           <Text style={styles.sectionTitle}>🏆 Records personnels</Text>
-          <View style={styles.recordsCard}>
+          <View style={[styles.recordsCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
             {stats.personalRecords.map((pr, i) => (
               <TouchableOpacity
                 key={pr.name}
-                style={[styles.recordRow, i < stats.personalRecords.length - 1 && styles.recordBorder]}
+                style={[styles.recordRow, i < stats.personalRecords.length - 1 && { ...styles.recordBorder, borderBottomColor: theme.cardBorder }]}
                 onPress={() => router.push(`/exercises/${encodeURIComponent(pr.name)}` as any)}
               >
                 <Text style={styles.recordName}>{pr.name}</Text>
@@ -408,7 +498,7 @@ export default function DashboardScreen() {
       )}
 
       {stats.totalSessionCount === 0 && (
-        <EmptyState onPress={handleNewSession} />
+        <EmptyState onPress={handleNewSession} theme={theme} />
       )}
     </ScrollView>
   );
@@ -416,11 +506,12 @@ export default function DashboardScreen() {
 
 // ── StatCard ─────────────────────────────────────────────────
 
-function StatCard({ icon, label, value, color }: {
+function StatCard({ icon, label, value, color, theme }: {
   icon: string; label: string; value: string; color: string;
+  theme: ReturnType<typeof useAppTheme>;
 }) {
   return (
-    <View style={[statStyles.card, { borderColor: color + '40' }]}>
+    <View style={[statStyles.card, { backgroundColor: theme.card, borderColor: color + '40' }]}>
       <Ionicons name={icon as any} size={18} color={color} />
       <Text style={statStyles.value}>{value}</Text>
       <Text style={statStyles.label}>{label}</Text>
@@ -430,13 +521,13 @@ function StatCard({ icon, label, value, color }: {
 
 // ── EmptyState ───────────────────────────────────────────────
 
-function EmptyState({ onPress }: { onPress: () => void }) {
+function EmptyState({ onPress, theme }: { onPress: () => void; theme: ReturnType<typeof useAppTheme> }) {
   return (
     <View style={emptyStyles.container}>
       <Text style={emptyStyles.emoji}>🏋️</Text>
       <Text style={emptyStyles.title}>Commence ton aventure</Text>
       <Text style={emptyStyles.sub}>Enregistre ta première séance et suis tes progrès.</Text>
-      <TouchableOpacity style={emptyStyles.btn} onPress={onPress}>
+      <TouchableOpacity style={[emptyStyles.btn, { backgroundColor: theme.primary }]} onPress={onPress}>
         <Text style={emptyStyles.btnText}>Démarrer une séance</Text>
       </TouchableOpacity>
     </View>
@@ -461,6 +552,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm,
   },
   newSessionText: { color: '#fff', fontWeight: FONTS.bold, fontSize: FONTS.sm },
+
+  // Prochaine séance
+  nextSessionCard: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
+    borderWidth: 1.5, borderColor: COLORS.primary + '60',
+    padding: SPACING.base, marginBottom: SPACING.xl,
+    ...SHADOWS.card,
+  },
+  nextSessionHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.sm },
+  nextSessionEmoji: { fontSize: 28 },
+  nextSessionProgram: { fontSize: FONTS.xs, fontWeight: FONTS.semibold, color: COLORS.primary, textTransform: 'uppercase', letterSpacing: 0.5 },
+  nextSessionLabel: { fontSize: FONTS.md, fontWeight: FONTS.bold, color: COLORS.textPrimary, marginTop: 2 },
+  dayBadge: {
+    backgroundColor: COLORS.primaryGlow, borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.sm, paddingVertical: 2,
+    borderWidth: 1, borderColor: COLORS.primary + '40',
+  },
+  dayBadgeText: { fontSize: FONTS.xs, color: COLORS.primary, fontWeight: FONTS.bold },
+  nextSessionMuscles: { fontSize: FONTS.xs, color: COLORS.textSecondary, marginBottom: SPACING.sm },
+  nextSessionExList: { gap: 4, marginBottom: SPACING.md },
+  nextSessionEx: { fontSize: FONTS.sm, color: COLORS.textPrimary },
+  startProgramBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: SPACING.sm, backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.lg, paddingVertical: SPACING.sm, paddingHorizontal: SPACING.base,
+  },
+  startProgramBtnText: { color: '#fff', fontWeight: FONTS.bold, fontSize: FONTS.sm },
 
   statsRow: { flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.lg },
 

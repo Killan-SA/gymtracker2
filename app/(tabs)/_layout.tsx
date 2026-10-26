@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { ColorValue, Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { COLORS, FONTS } from '../../constants/theme';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
@@ -13,7 +13,7 @@ function TabIcon({
 }: {
   name: IoniconsName;
   nameActive: IoniconsName;
-  color: ColorValue;
+  color: string;
   focused: boolean;
 }) {
   return (
@@ -51,7 +51,7 @@ export default function TabLayout() {
             <TabIcon
               name="home-outline"
               nameActive="home"
-              color={color}
+              color={color as string}
               focused={focused}
             />
           ),
@@ -66,7 +66,7 @@ export default function TabLayout() {
             <TabIcon
               name="time-outline"
               nameActive="time"
-              color={color}
+              color={color as string}
               focused={focused}
             />
           ),
@@ -81,7 +81,7 @@ export default function TabLayout() {
             <TabIcon
               name="barbell-outline"
               nameActive="barbell"
-              color={color}
+              color={color as string}
               focused={focused}
             />
           ),
@@ -96,7 +96,7 @@ export default function TabLayout() {
             <TabIcon
               name="settings-outline"
               nameActive="settings"
-              color={color}
+              color={color as string}
               focused={focused}
             />
           ),

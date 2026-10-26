@@ -77,6 +77,14 @@ function _initDatabase(db: SQLite.SQLiteDatabase): void {
     );
   `);
 
+  // Table de paramètres utilisateur (clé/valeur) — seed, thème, programme actif, etc.
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS user_settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+
   // Index pour accélérer les requêtes fréquentes
   db.execSync(`
     CREATE INDEX IF NOT EXISTS idx_exercises_session_id
@@ -125,6 +133,17 @@ function _initDatabase(db: SQLite.SQLiteDatabase): void {
     `);
     db.execSync('PRAGMA user_version = 2;');
   }
+
+  // user_version 2 → 3 : table user_settings (seed, thème, programme)
+  if (currentVersion < 3) {
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS user_settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+    db.execSync('PRAGMA user_version = 3;');
+  }
 }
 
 // ============================================================
@@ -165,7 +184,7 @@ export function resetAllData(): void {
   db.execSync('DELETE FROM exercise_names;');
 }
 
-/** Lit une préférence persistée (ou null si jamais définie) */
+/** Lit une préférence persistée depuis app_settings (ou null si jamais définie) */
 export function getAppSetting(key: string): string | null {
   const db = getDb();
   const row = db.getFirstSync<{ value: string }>(
@@ -175,11 +194,31 @@ export function getAppSetting(key: string): string | null {
   return row?.value ?? null;
 }
 
-/** Enregistre une préférence de façon persistée */
+/** Enregistre une préférence dans app_settings de façon persistée */
 export function setAppSetting(key: string, value: string): void {
   const db = getDb();
   db.runSync(
     `INSERT INTO app_settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [key, value]
+  );
+}
+
+/** Lit un paramètre utilisateur depuis user_settings (ou null si jamais défini) */
+export function getUserSetting(key: string): string | null {
+  const db = getDb();
+  const row = db.getFirstSync<{ value: string }>(
+    'SELECT value FROM user_settings WHERE key = ?',
+    [key]
+  );
+  return row?.value ?? null;
+}
+
+/** Enregistre un paramètre utilisateur dans user_settings de façon persistée */
+export function setUserSetting(key: string, value: string): void {
+  const db = getDb();
+  db.runSync(
+    `INSERT INTO user_settings (key, value) VALUES (?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     [key, value]
   );

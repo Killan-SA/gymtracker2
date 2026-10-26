@@ -39,6 +39,8 @@ import {
   searchExercises,
 } from '../../constants/exercises';
 import type { ExerciseEntry } from '../../constants/exercises';
+import { useSettingsStore } from '../../lib/settingsStore';
+import { getProgramById } from '../../lib/programs';
 import type { ExerciseWithSets, Set } from '../../types';
 
 export default function SessionScreen() {
@@ -234,7 +236,7 @@ export default function SessionScreen() {
             onNewRecord={handleNewRecord}
           />
         )}
-        ListHeaderComponent={exercises.length === 0 ? <EmptySession /> : null}
+        ListHeaderComponent={exercises.length === 0 ? <EmptySession /> : undefined}
         ListFooterComponent={
           <View style={styles.footer}>
             <TouchableOpacity

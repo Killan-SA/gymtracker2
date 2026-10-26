@@ -14,7 +14,7 @@ export default function RootLayout() {
     // Initialise la base de données au démarrage
     try {
       getDb();
-      // Charge les préférences persistées (unité kg/lbs, etc.)
+      // Charge les préférences persistées (unité kg/lbs, thème, programme, etc.)
       useSettingsStore.getState().loadSettings();
     } catch (error) {
       console.error('Erreur d\'initialisation de la BDD :', error);

@@ -1,5 +1,5 @@
 import dayjs from 'dayjs';
-import { getDb, generateId, nowISO } from './database';
+import { getDb, generateId, nowISO, getUserSetting, setUserSetting } from './database';
 import { PREDEFINED_EXERCISES, EXERCISE_CATEGORIES } from '../constants/exercises';
 import type { ExerciseEntry } from '../constants/exercises';
 import type {
@@ -931,4 +931,24 @@ export function addCustomExercise(name: string, category: string): void {
      ON CONFLICT(name) DO UPDATE SET use_count = use_count + 1, last_used = excluded.last_used`,
     [name.trim(), nowISO()]
   );
+}
+
+
+// ============================================================
+// RÉGLAGES GÉNÉRIQUES user_settings
+// ============================================================
+
+/**
+ * Lit un réglage utilisateur depuis la table user_settings.
+ * Retourne null si la clé n'existe pas.
+ */
+export function getSetting(key: string): string | null {
+  return getUserSetting(key);
+}
+
+/**
+ * Enregistre un réglage utilisateur dans la table user_settings.
+ */
+export function setSetting(key: string, value: string): void {
+  setUserSetting(key, value);
 }

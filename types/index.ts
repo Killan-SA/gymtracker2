@@ -120,6 +120,8 @@ export interface WeeklyReport {
 /** Un jour de programme, avec la liste d'exercices prescrits */
 export interface ProgramDay {
   label: string;          // "Push", "Pull", "Legs", "Jour 1"...
+  emoji?: string;         // Emoji représentant la journée (ex: "💪")
+  muscleGroups?: string[]; // Groupes musculaires ciblés
   exerciseNames: string[];
 }
 

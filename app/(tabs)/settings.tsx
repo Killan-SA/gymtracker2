@@ -15,12 +15,17 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { resetAllData, getUserBodyweight, setUserBodyweight } from '../../lib/queries';
 import { useSettingsStore } from '../../lib/settingsStore';
+import { useAppTheme, THEMES } from '../../lib/themes';
 import { fromKg, toKg, unitLabel, roundWeight } from '../../lib/units';
 import { COLORS, FONTS, SPACING, RADIUS } from '../../constants/theme';
 
 export default function SettingsScreen() {
   const useKg = useSettingsStore((s) => s.useKg);
   const toggleUnit = useSettingsStore((s) => s.toggleUnit);
+  const themeId = useSettingsStore((s) => s.themeId);
+  const setThemeId = useSettingsStore((s) => s.setThemeId);
+  const theme = useAppTheme();
+
   const [bodyweightInput, setBodyweightInput] = useState('');
 
   useEffect(() => {
@@ -84,14 +89,14 @@ export default function SettingsScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView
-        style={styles.container}
+        style={[styles.container, { backgroundColor: theme.background }]}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
         {/* ── Profil ─────────────────────────────────────── */}
         <Text style={styles.sectionTitle}>Mon profil</Text>
-        <View style={styles.section}>
+        <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
           {/* Poids corporel */}
           <View style={settingStyles.row}>
             <View style={[settingStyles.iconContainer, { backgroundColor: `${COLORS.success}20` }]}>
@@ -100,7 +105,7 @@ export default function SettingsScreen() {
             <Text style={settingStyles.label}>{`Mon poids (${unitLabel(useKg)})`}</Text>
             <View style={styles.bwRow}>
               <TextInput
-                style={styles.bwInput}
+                style={[styles.bwInput, { backgroundColor: theme.surface, borderColor: theme.cardBorder }]}
                 value={bodyweightInput}
                 onChangeText={setBodyweightInput}
                 placeholder="75"
@@ -109,16 +114,16 @@ export default function SettingsScreen() {
                 returnKeyType="done"
                 onSubmitEditing={handleSaveBodyweight}
               />
-              <TouchableOpacity style={styles.bwSaveBtn} onPress={handleSaveBodyweight}>
+              <TouchableOpacity style={[styles.bwSaveBtn, { backgroundColor: theme.primary }]} onPress={handleSaveBodyweight}>
                 <Text style={styles.bwSaveBtnText}>OK</Text>
               </TouchableOpacity>
             </View>
           </View>
-          <View style={styles.rowDivider} />
+          <View style={[styles.rowDivider, { backgroundColor: COLORS.separator }]} />
           {/* Unité */}
           <SettingRow
             icon="scale-outline"
-            iconColor={COLORS.primary}
+            iconColor={theme.primary}
             label="Unité de poids"
             right={
               <View style={styles.unitToggle}>
@@ -126,11 +131,11 @@ export default function SettingsScreen() {
                 <Switch
                   value={useKg}
                   onValueChange={toggleUnit}
-                  trackColor={{ false: COLORS.cardBorder, true: COLORS.primaryDark }}
-                  thumbColor={useKg ? COLORS.primary : COLORS.textMuted}
+                  trackColor={{ false: COLORS.cardBorder, true: theme.primaryDark }}
+                  thumbColor={useKg ? theme.primary : COLORS.textMuted}
                   ios_backgroundColor={COLORS.cardBorder}
                 />
-                <Text style={[styles.unitLabel, useKg && styles.unitLabelActive]}>kg</Text>
+                <Text style={[styles.unitLabel, useKg && [styles.unitLabelActive, { color: theme.primary }]]}>kg</Text>
               </View>
             }
           />
@@ -142,25 +147,57 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* ── Apparence ──────────────────────────────────── */}
+        <Text style={styles.sectionTitle}>Apparence</Text>
+        <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+          <View style={settingStyles.row}>
+            <View style={[settingStyles.iconContainer, { backgroundColor: `${theme.primary}20` }]}>
+              <Ionicons name="color-palette-outline" size={20} color={theme.primary} />
+            </View>
+            <Text style={settingStyles.label}>Couleur principale</Text>
+          </View>
+          <View style={styles.swatchRow}>
+            {Object.values(THEMES).map((t) => (
+              <TouchableOpacity
+                key={t.id}
+                style={[
+                  styles.swatch,
+                  { backgroundColor: t.swatch },
+                  themeId === t.id && styles.swatchActive,
+                ]}
+                onPress={() => setThemeId(t.id)}
+                activeOpacity={0.8}
+              >
+                {themeId === t.id && (
+                  <Ionicons name="checkmark" size={16} color="#fff" />
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={styles.themeLabel}>
+            {THEMES[themeId]?.label ?? 'Bleu'}
+          </Text>
+        </View>
+
         {/* ── Données ────────────────────────────────────── */}
         <Text style={styles.sectionTitle}>Données</Text>
-        <View style={styles.section}>
+        <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
           <SettingRow
             icon="calendar-outline"
-            iconColor={COLORS.primary}
+            iconColor={theme.primary}
             label="Programme d'entraînement"
             onPress={() => router.push('/programs' as any)}
             showArrow
           />
-          <View style={styles.rowDivider} />
+          <View style={[styles.rowDivider, { backgroundColor: COLORS.separator }]} />
           <SettingRow
             icon="cloud-upload-outline"
-            iconColor={COLORS.primary}
+            iconColor={theme.primary}
             label="Importer depuis Excel (.xlsx)"
             onPress={() => router.push('/import' as any)}
             showArrow
           />
-          <View style={styles.rowDivider} />
+          <View style={[styles.rowDivider, { backgroundColor: COLORS.separator }]} />
           <SettingRow
             icon="trash-outline"
             iconColor={COLORS.danger}
@@ -172,19 +209,19 @@ export default function SettingsScreen() {
 
         {/* ── À propos ───────────────────────────────────── */}
         <Text style={styles.sectionTitle}>À propos</Text>
-        <View style={styles.section}>
+        <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
           <SettingRow
             icon="barbell-outline"
-            iconColor={COLORS.primary}
+            iconColor={theme.primary}
             label="GymTracker"
             right={<Text style={styles.version}>v2.0</Text>}
           />
-          <View style={styles.rowDivider} />
+          <View style={[styles.rowDivider, { backgroundColor: COLORS.separator }]} />
           <SettingRow
             icon="code-slash-outline"
             iconColor={COLORS.textSecondary}
             label="Développé avec Expo"
-            right={<Text style={styles.version}>SDK 57</Text>}
+            right={<Text style={styles.version}>SDK 58</Text>}
           />
         </View>
 
@@ -261,6 +298,27 @@ const styles = StyleSheet.create({
     fontWeight: FONTS.medium, width: 24, textAlign: 'center',
   },
   unitLabelActive: { color: COLORS.primary },
+
+  // Swatches de thème
+  swatchRow: {
+    flexDirection: 'row', gap: SPACING.md, flexWrap: 'wrap',
+    paddingHorizontal: SPACING.base, paddingBottom: SPACING.sm,
+  },
+  swatch: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4, shadowRadius: 4, elevation: 4,
+  },
+  swatchActive: {
+    borderWidth: 3, borderColor: '#fff',
+    shadowOpacity: 0.6, shadowRadius: 8,
+  },
+  themeLabel: {
+    fontSize: FONTS.xs, color: COLORS.textSecondary, fontStyle: 'italic',
+    paddingHorizontal: SPACING.base, paddingBottom: SPACING.base,
+  },
+
   version: { fontSize: FONTS.sm, color: COLORS.textSecondary },
   footer: {
     fontSize: FONTS.sm, color: COLORS.textMuted, textAlign: 'center',
