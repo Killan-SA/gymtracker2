@@ -160,7 +160,8 @@ export default function SessionScreen() {
 
     addSet(exerciseId, defaultWeight, last?.reps ?? 0, null);
     loadSession();
-    startRestTimer(restDuration);
+    // Le chronomètre ne démarre plus automatiquement :
+    // l'utilisateur le déclenche manuellement via le bouton "Temps de repos" entre chaque série.
   };
 
   const handleCreateExercise = () => {
@@ -203,7 +204,20 @@ export default function SessionScreen() {
         : `Séance terminée avec ${exercises.length} exercice(s). 💪`,
       [
         { text: 'Continuer la séance', style: 'cancel' },
-        { text: 'Terminer ✅', onPress: () => router.replace('/(tabs)' as any) },
+        {
+          text: 'Terminer ✅',
+          onPress: () => {
+            // Avance au jour suivant du programme actif
+            const activeProgId = useSettingsStore.getState().currentProgramId;
+            if (activeProgId) {
+              const prog = getProgramById(activeProgId);
+              if (prog && prog.days.length > 0) {
+                useSettingsStore.getState().advanceProgramDay(prog.days.length);
+              }
+            }
+            router.replace('/(tabs)' as any);
+          },
+        },
       ]
     );
   };
@@ -234,6 +248,10 @@ export default function SessionScreen() {
             onDeleteExercise={() => handleDeleteExercise(item.id, item.name)}
             onReload={loadSession}
             onNewRecord={handleNewRecord}
+            restSecondsLeft={restSecondsLeft}
+            restDuration={restDuration}
+            onStartRest={(dur) => startRestTimer(dur)}
+            onChangeDuration={(dur) => setRestDuration(dur)}
           />
         )}
         ListHeaderComponent={exercises.length === 0 ? <EmptySession /> : undefined}
@@ -446,6 +464,10 @@ function ExerciseCard({
   onDeleteExercise,
   onReload,
   onNewRecord,
+  restSecondsLeft,
+  restDuration,
+  onStartRest,
+  onChangeDuration,
 }: {
   exercise: ExerciseWithSets;
   onAddSet: () => void;
@@ -453,6 +475,10 @@ function ExerciseCard({
   onDeleteExercise: () => void;
   onReload: () => void;
   onNewRecord: (exerciseName: string, weight: number) => void;
+  restSecondsLeft: number | null;
+  restDuration: number;
+  onStartRest: (duration: number) => void;
+  onChangeDuration: (duration: number) => void;
 }) {
   // Record connu AVANT toute modification dans cette carte (recalculé à chaque reload)
   const recordSoFar = getExercisePersonalRecord(exercise.name);
@@ -475,15 +501,70 @@ function ExerciseCard({
         <View style={{ width: 32 }} />
       </View>
 
-      {exercise.sets.map((set) => (
-        <SetRow
-          key={set.id}
-          set={set}
-          personalRecord={recordSoFar}
-          onDelete={() => onDeleteSet(set.id)}
-          onReload={onReload}
-          onNewRecord={(weight) => onNewRecord(exercise.name, weight)}
-        />
+      {exercise.sets.map((set, setIndex) => (
+        <View key={set.id}>
+          <SetRow
+            set={set}
+            personalRecord={recordSoFar}
+            onDelete={() => onDeleteSet(set.id)}
+            onReload={onReload}
+            onNewRecord={(weight) => onNewRecord(exercise.name, weight)}
+          />
+
+          {/* Option temps de repos entre chaque série */}
+          <View style={cardStyles.restRow}>
+            <TouchableOpacity
+              style={[
+                cardStyles.restBtn,
+                restSecondsLeft !== null && cardStyles.restBtnActive,
+              ]}
+              onPress={() => onStartRest(restDuration)}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={restSecondsLeft !== null ? 'time' : 'timer-outline'}
+                size={14}
+                color={restSecondsLeft !== null ? COLORS.warning : COLORS.primary}
+              />
+              <Text
+                style={[
+                  cardStyles.restBtnText,
+                  restSecondsLeft !== null && { color: COLORS.warning, fontWeight: '700' },
+                ]}
+              >
+                {restSecondsLeft !== null
+                  ? `Repos : ${Math.floor(restSecondsLeft / 60)}:${(restSecondsLeft % 60).toString().padStart(2, '0')}`
+                  : `Temps de repos (${Math.floor(restDuration / 60)}m${restDuration % 60 > 0 ? (restDuration % 60) + 's' : ''})`}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={cardStyles.presetPills}>
+              {[60, 90, 120, 180].map((sec) => (
+                <TouchableOpacity
+                  key={sec}
+                  style={[
+                    cardStyles.presetPill,
+                    restDuration === sec && cardStyles.presetPillActive,
+                  ]}
+                  onPress={() => {
+                    onChangeDuration(sec);
+                    onStartRest(sec);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      cardStyles.presetPillText,
+                      restDuration === sec && cardStyles.presetPillTextActive,
+                    ]}
+                  >
+                    {sec === 60 ? '1m' : sec === 90 ? '1m30' : sec === 120 ? '2m' : '3m'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
       ))}
 
       {exercise.sets.length === 0 && (
@@ -756,13 +837,68 @@ const cardStyles = StyleSheet.create({
     gap: SPACING.xs, paddingVertical: SPACING.sm, marginTop: SPACING.sm,
   },
   addSetText: { fontSize: FONTS.sm, fontWeight: FONTS.medium, color: COLORS.primary },
+  restRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.separator,
+    marginBottom: 2,
+  },
+  restBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: COLORS.primaryGlow,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 5,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.primary + '40',
+  },
+  restBtnActive: {
+    backgroundColor: COLORS.warning + '20',
+    borderColor: COLORS.warning,
+  },
+  restBtnText: {
+    fontSize: FONTS.xs,
+    color: COLORS.primary,
+    fontWeight: FONTS.semibold,
+  },
+  presetPills: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  presetPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  presetPillActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryGlow,
+  },
+  presetPillText: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    fontWeight: FONTS.medium,
+  },
+  presetPillTextActive: {
+    color: COLORS.primary,
+    fontWeight: FONTS.bold,
+  },
 });
 
 const setRowStyles = StyleSheet.create({
   row: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.separator,
+    paddingVertical: SPACING.xs,
   },
   setNumberContainer: {
     width: 28, height: 28, borderRadius: RADIUS.full,

@@ -9,7 +9,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { useCallback, useState, useEffect } from 'react';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/fr';
@@ -111,6 +111,13 @@ export default function DashboardScreen() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  useFocusEffect(
+    useCallback(() => {
+      useSettingsStore.getState().loadSettings();
+      loadData();
+    }, [loadData])
+  );
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadData();
@@ -205,9 +212,14 @@ export default function DashboardScreen() {
       </View>
 
       {/* ── Prochaine séance du programme ─────────────────── */}
-      {activeProgram && nextDay && (
+      {activeProgram && nextDay ? (
         <>
-          <Text style={styles.sectionTitle}>📅 Prochaine séance</Text>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>📅 Prochaine séance</Text>
+            <TouchableOpacity onPress={() => router.push('/programs' as any)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={[styles.changeProgramLink, { color: theme.primary }]}>Changer</Text>
+            </TouchableOpacity>
+          </View>
           <TouchableOpacity
             style={[styles.nextSessionCard, { backgroundColor: theme.card, borderColor: theme.primary + '60' }]}
             onPress={handleStartProgramDay}
@@ -251,6 +263,25 @@ export default function DashboardScreen() {
             </View>
           </TouchableOpacity>
         </>
+      ) : (
+        <TouchableOpacity
+          style={[styles.pickProgramCard, { backgroundColor: theme.card, borderColor: theme.primary + '40' }]}
+          onPress={() => router.push('/programs' as any)}
+          activeOpacity={0.85}
+        >
+          <View style={styles.pickProgramHeader}>
+            <View style={[styles.pickProgramIcon, { backgroundColor: theme.primaryGlow }]}>
+              <Ionicons name="calendar-outline" size={24} color={theme.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.pickProgramTitle}>Choisir un programme</Text>
+              <Text style={styles.pickProgramSub}>
+                PPL, Full Body, Haut/Bas... Choisis un programme pour afficher ta prochaine séance ici !
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.primary} />
+          </View>
+        </TouchableOpacity>
       )}
 
       {/* ── Stats principales ──────────────────────────────── */}
@@ -595,6 +626,51 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: FONTS.base, fontWeight: FONTS.semibold,
     color: COLORS.textSecondary, marginBottom: SPACING.sm, marginTop: SPACING.xs,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.xs,
+  },
+  changeProgramLink: {
+    fontSize: FONTS.xs,
+    fontWeight: FONTS.semibold,
+    color: COLORS.primary,
+  },
+
+  // Choisir un programme banner
+  pickProgramCard: {
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS.xl,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    padding: SPACING.base,
+    marginBottom: SPACING.xl,
+    ...SHADOWS.card,
+  },
+  pickProgramHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+  },
+  pickProgramIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: RADIUS.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickProgramTitle: {
+    fontSize: FONTS.base,
+    fontWeight: FONTS.bold,
+    color: COLORS.textPrimary,
+  },
+  pickProgramSub: {
+    fontSize: FONTS.xs,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+    lineHeight: 16,
   },
 
   staleCard: {

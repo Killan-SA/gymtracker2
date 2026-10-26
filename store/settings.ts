@@ -60,15 +60,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     // Thème (user_settings)
     const storedTheme = getUserSetting(THEME_KEY);
 
-    // Programme actif (user_settings)
-    const storedProgramId = getUserSetting(PROGRAM_KEY);
-    const storedDayIndex = getUserSetting(PROGRAM_DAY_KEY);
+    // Programme actif (user_settings avec fallback app_settings)
+    const storedProgramId = getUserSetting(PROGRAM_KEY) || getAppSetting('active_program_id');
+    const storedDayIndex = getUserSetting(PROGRAM_DAY_KEY) || getAppSetting('program_next_day_index');
 
     set({
       useKg: stored !== '0',
       loaded: true,
       themeId: storedTheme ?? 'blue',
-      currentProgramId: storedProgramId ?? null,
+      currentProgramId: (storedProgramId && storedProgramId.trim()) ? storedProgramId : null,
       currentProgramDayIndex: storedDayIndex ? parseInt(storedDayIndex, 10) || 0 : 0,
     });
   },
@@ -93,10 +93,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     if (programId === null) {
       setUserSetting(PROGRAM_KEY, '');
       setUserSetting(PROGRAM_DAY_KEY, '0');
+      setAppSetting('active_program_id', '');
+      setAppSetting('program_next_day_index', '0');
       set({ currentProgramId: null, currentProgramDayIndex: 0 });
     } else {
       setUserSetting(PROGRAM_KEY, programId);
       setUserSetting(PROGRAM_DAY_KEY, '0');
+      setAppSetting('active_program_id', programId);
+      setAppSetting('program_next_day_index', '0');
       set({ currentProgramId: programId, currentProgramDayIndex: 0 });
     }
   },
@@ -104,6 +108,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   advanceProgramDay: (totalDays: number) => {
     const nextIndex = (get().currentProgramDayIndex + 1) % totalDays;
     setUserSetting(PROGRAM_DAY_KEY, nextIndex.toString());
+    setAppSetting('program_next_day_index', nextIndex.toString());
     set({ currentProgramDayIndex: nextIndex });
   },
 

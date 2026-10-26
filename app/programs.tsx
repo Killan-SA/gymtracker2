@@ -17,6 +17,7 @@ import {
   getNextProgramDayIndex,
   createSessionFromProgramDay,
 } from '../lib/queries';
+import { useSettingsStore } from '../lib/settingsStore';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../constants/theme';
 
 export default function ProgramsScreen() {
@@ -39,18 +40,20 @@ export default function ProgramsScreen() {
     : null;
 
   const handleActivate = (program: TrainingProgram) => {
+    setActiveProgram(program.id);
+    useSettingsStore.getState().setCurrentProgram(program.id);
+    load();
     Alert.alert(
-      `Activer "${program.name}" ?`,
-      'GymTracker te proposera automatiquement le prochain jour du programme à chaque séance.',
+      `Programme "${program.name}" activé ! 💪`,
+      'Ta prochaine séance est prête directement sur ton tableau de bord.',
       [
-        { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Activer',
+          text: 'Voir sur le tableau de bord 🚀',
           onPress: () => {
-            setActiveProgram(program.id);
-            load();
+            router.replace('/(tabs)' as any);
           },
         },
+        { text: 'Rester ici', style: 'cancel' },
       ]
     );
   };
@@ -61,7 +64,11 @@ export default function ProgramsScreen() {
       {
         text: 'Désactiver',
         style: 'destructive',
-        onPress: () => { setActiveProgram(null); load(); },
+        onPress: () => {
+          setActiveProgram(null);
+          useSettingsStore.getState().setCurrentProgram(null);
+          load();
+        },
       },
     ]);
   };

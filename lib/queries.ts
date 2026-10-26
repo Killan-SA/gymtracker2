@@ -821,6 +821,12 @@ const PROGRAM_DAY_INDEX_KEY = 'active_program_day_index';
 /** Retourne l'id du programme actif, ou null si aucun n'est sélectionné */
 export function getActiveProgramId(): string | null {
   const db = getDb();
+  const rowUser = db.getFirstSync<{ value: string }>(
+    'SELECT value FROM user_settings WHERE key = ?',
+    ['currentProgramId']
+  );
+  if (rowUser?.value) return rowUser.value;
+
   const row = db.getFirstSync<{ value: string }>(
     'SELECT value FROM app_settings WHERE key = ?',
     [ACTIVE_PROGRAM_KEY]
@@ -834,6 +840,8 @@ export function setActiveProgram(programId: string | null): void {
   if (programId === null) {
     db.runSync('DELETE FROM app_settings WHERE key = ?', [ACTIVE_PROGRAM_KEY]);
     db.runSync('DELETE FROM app_settings WHERE key = ?', [PROGRAM_DAY_INDEX_KEY]);
+    db.runSync('DELETE FROM user_settings WHERE key = ?', ['currentProgramId']);
+    db.runSync('DELETE FROM user_settings WHERE key = ?', ['currentProgramDayIndex']);
     return;
   }
   db.runSync(
@@ -846,11 +854,28 @@ export function setActiveProgram(programId: string | null): void {
      ON CONFLICT(key) DO UPDATE SET value = '0'`,
     [PROGRAM_DAY_INDEX_KEY]
   );
+  db.runSync(
+    `INSERT INTO user_settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ['currentProgramId', programId]
+  );
+  db.runSync(
+    `INSERT INTO user_settings (key, value) VALUES (?, '0')
+     ON CONFLICT(key) DO UPDATE SET value = '0'`,
+    ['currentProgramDayIndex']
+  );
 }
 
 /** Index du prochain jour de programme à faire (0-based, cycle automatiquement) */
 export function getNextProgramDayIndex(): number {
   const db = getDb();
+  const rowUser = db.getFirstSync<{ value: string }>(
+    'SELECT value FROM user_settings WHERE key = ?',
+    ['currentProgramDayIndex']
+  );
+  if (rowUser?.value) {
+    return parseInt(rowUser.value, 10) || 0;
+  }
   const row = db.getFirstSync<{ value: string }>(
     'SELECT value FROM app_settings WHERE key = ?',
     [PROGRAM_DAY_INDEX_KEY]
@@ -878,6 +903,11 @@ export function createSessionFromProgramDay(
     `INSERT INTO app_settings (key, value) VALUES (?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     [PROGRAM_DAY_INDEX_KEY, nextDayIndex.toString()]
+  );
+  db.runSync(
+    `INSERT INTO user_settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ['currentProgramDayIndex', nextDayIndex.toString()]
   );
 
   return session.id;
